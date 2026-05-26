@@ -1,0 +1,18 @@
+# IDE
+.vscode/
+.idea/
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+*.backup
+
+# Terraform cache
+.terraform/
+
+# Environment variables
+.env
+
+# Secret key
+*.pem
+*.key
