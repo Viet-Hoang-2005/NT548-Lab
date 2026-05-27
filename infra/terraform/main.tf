@@ -39,11 +39,19 @@ module "security_group" {
 
 module "ec2" {
   source               = "./modules/ec2"
-  public_subnet_id     = module.vpc.public_subnet_id
+  public_subnet_ids    = module.vpc.public_subnet_ids
   private_subnet_id    = module.vpc.private_subnet_id
   public_sg_id         = module.security_group.public_sg_id
   private_sg_id        = module.security_group.private_sg_id
   key_name             = aws_key_pair.generated_key.key_name
   master_instance_type = var.master_instance_type
   worker_instance_type = var.worker_instance_type
+}
+
+module "alb" {
+  source              = "./modules/alb"
+  vpc_id              = module.vpc.vpc_id
+  public_subnet_ids   = module.vpc.public_subnet_ids
+  alb_sg_id           = module.security_group.alb_sg_id
+  worker_instance_ids = module.ec2.worker_instance_ids
 }

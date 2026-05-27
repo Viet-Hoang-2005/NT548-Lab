@@ -13,3 +13,8 @@ output "private_key_pem" {
   value       = tls_private_key.my_key.private_key_pem
   sensitive   = true
 }
+
+output "alb_dns_name" {
+  description = "DNS name of the ALB to access the website"
+  value       = module.alb.alb_dns_name
+}

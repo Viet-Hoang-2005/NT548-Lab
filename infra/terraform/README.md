@@ -9,13 +9,15 @@ Môi trường bao gồm một mạng riêng ảo (VPC) bảo mật, các tườ
 Hạ tầng được triển khai bao gồm các thành phần sau:
 
 - **VPC (Virtual Private Cloud)**: Mạng riêng ảo cô lập hoàn toàn tài nguyên.
-- **Public Subnet**: Dành cho các tài nguyên có thể truy cập trực tiếp từ Internet.
-- **Private Subnet**: Dành cho các tài nguyên nội bộ, không có IP Public.
+- **Public Subnets**: Gồm 2 Subnet ở 2 Availability Zone khác nhau (để đáp ứng yêu cầu ALB).
+- **Private Subnet**: Dành cho các tài nguyên nội bộ (Worker Nodes), không có IP Public.
 - **Internet Gateway (IGW)**: Cho phép tài nguyên trong Public Subnet giao tiếp với Internet.
-- **NAT Gateway**: Cho phép tài nguyên trong Private Subnet truy cập ra ngoài Internet (nhưng chặn kết nối khởi tạo từ Internet đi vào).
+- **NAT Gateway**: Đặt ở Public Subnet 1, cho phép tài nguyên trong Private Subnet truy cập ra ngoài Internet để tải các bản cập nhật.
+- **Application Load Balancer (ALB)**: Đặt ở 2 Public Subnets, đóng vai trò nhận traffic từ Internet (cổng 80) và phân phối tải vào các Worker Nodes.
 - **Security Groups**:
-  - `group7-public-ec2-sg`: Cho phép SSH (Port 22) từ IP cho phép.
-  - `group7-private-ec2-sg`: Chỉ cho phép kết nối từ Public Security Group.
+  - `group7-alb-sg`: Cho phép nhận HTTP traffic từ Internet (0.0.0.0/0).
+  - `group7-public-ec2-sg`: Cho phép SSH (Port 22) vào Master Node.
+  - `group7-private-ec2-sg`: Cho phép nhận luồng từ `alb-sg` (Port 80) và giao tiếp nội bộ với Master Node.
 - **EC2 Instances**:
   - **1 Master Node** (`t2.micro`) nằm ở Public Subnet.
   - **2 Worker Nodes** (`t2.micro`) nằm ở Private Subnet.
