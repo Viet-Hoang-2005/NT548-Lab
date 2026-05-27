@@ -9,6 +9,14 @@ terraform {
       version = "~> 4.0"
     }
   }
+
+  backend "s3" {
+    bucket         = "group7-tfstate-artifact"
+    key            = "terraform/state/terraform.tfstate"
+    region         = "ap-southeast-1"
+    dynamodb_table = "group7-tfstate-locks"
+    encrypt        = true
+  }
 }
 
 provider "aws" {
