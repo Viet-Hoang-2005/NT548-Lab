@@ -10,10 +10,16 @@ variable "allowed_ssh_ip" {
   default     = "0.0.0.0/0"
 }
 
-variable "instance_type" {
-  description = "EC2 Instance type"
+variable "master_instance_type" {
+  description = "EC2 Instance type for Master Node"
   type        = string
-  default     = "t2.micro"
+  default     = "t2.small"
+}
+
+variable "worker_instance_type" {
+  description = "EC2 Instance type for Worker Nodes"
+  type        = string
+  default     = "t2.large"
 }
 
 variable "vpc_cidr" {

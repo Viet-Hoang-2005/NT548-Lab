@@ -23,7 +23,12 @@ variable "key_name" {
   type        = string
 }
 
-variable "instance_type" {
-  description = "Instance type"
+variable "master_instance_type" {
+  description = "Instance type for Master Node"
+  type        = string
+}
+
+variable "worker_instance_type" {
+  description = "Instance type for Worker Nodes"
   type        = string
 }
