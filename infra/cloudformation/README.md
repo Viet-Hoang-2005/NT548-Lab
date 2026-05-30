@@ -1,8 +1,8 @@
-# AWS infrastructure with CloudFormation
+# Xây dựng hạ tầng AWS bằng CloudFormation
 
-Thu muc nay trien khai lai bai Lab 1 bang CloudFormation theo kieu module hoa bang nested stacks.
+Thư mục này triển khai lại hạ tầng AWS bằng CloudFormation theo kiểu module hóa bằng nested stacks.
 
-## Cau truc
+## Cấu trúc thư mục
 
 ```text
 infra/cloudformation/
@@ -18,23 +18,23 @@ infra/cloudformation/
         `-- alb.yaml
 ```
 
-- `main.yaml`: root stack, tao EC2 key pair va goi cac nested stacks.
-- `modules/vpc/vpc.yaml`: VPC, public/private subnets, Internet Gateway, NAT Gateway, route tables.
-- `modules/security-group/security-group.yaml`: Security Group cho ALB, public EC2 va private EC2.
-- `modules/ec2/ec2.yaml`: 1 public master node va 2 private worker nodes.
-- `modules/alb/alb.yaml`: Application Load Balancer, target group, listener va attachment vao worker nodes.
+- `main.yaml`: root stack, tạo EC2 key pair và gọi các nested stacks.
+- `modules/vpc/vpc.yaml`: VPC, public/private subnets, Internet Gateway, NAT Gateway và route tables.
+- `modules/security-group/security-group.yaml`: Security Groups cho ALB, public EC2 và private EC2.
+- `modules/ec2/ec2.yaml`: 1 public master node và 2 private worker nodes.
+- `modules/alb/alb.yaml`: Application Load Balancer, target group, listener và attachment vào worker nodes.
 
-CloudFormation khong doc duoc nested template truc tiep tu file local khi deploy len AWS. Vi vay can chay `aws cloudformation package` de upload cac file trong `modules/` len S3 va sinh ra file template da dong goi.
+CloudFormation không deploy nested template trực tiếp từ đường dẫn local. Vì vậy cần chạy `aws cloudformation package` để upload các template con lên S3 và sinh ra file `packaged.yaml`.
 
-## Dieu kien can co
+## Điều kiện cần có
 
-- AWS CLI da cau hinh credentials.
-- Mot S3 bucket de upload nested templates.
-- Quyen tao VPC, subnet, route table, NAT Gateway, EIP, Security Group, EC2, EC2 Key Pair, ALB, Target Group va doc SSM Parameter Store.
+- AWS CLI đã cấu hình credentials.
+- S3 bucket dùng để upload nested templates, ví dụ `group7-cfn-artifacts`.
+- Quyền tạo VPC, subnet, route table, NAT Gateway, EIP, Security Group, EC2, EC2 Key Pair, ALB, Target Group và đọc SSM Parameter Store.
 
 ## Package template
 
-Chay trong thu muc `infra/cloudformation`:
+Chạy trong thư mục `infra/cloudformation`:
 
 ```bash
 aws cloudformation package \
@@ -44,7 +44,7 @@ aws cloudformation package \
   --region ap-southeast-1
 ```
 
-Voi PowerShell:
+Với PowerShell:
 
 ```powershell
 aws cloudformation package `
@@ -56,7 +56,7 @@ aws cloudformation package `
 
 ## Deploy stack
 
-Nen thay `AllowedSshCidr` bang public IP cua may ban theo dang `/32`, vi du `203.0.113.10/32`.
+Nên thay `AllowedSshCidr` bằng public IP của bạn theo dạng `/32`, ví dụ `203.0.113.10/32`.
 
 ```bash
 aws cloudformation deploy \
@@ -72,7 +72,7 @@ aws cloudformation deploy \
       WorkerInstanceType=t2.large
 ```
 
-Voi PowerShell:
+Với PowerShell:
 
 ```powershell
 aws cloudformation deploy `
@@ -88,7 +88,7 @@ aws cloudformation deploy `
       WorkerInstanceType=t2.large
 ```
 
-## Lay output
+## Lấy outputs
 
 ```bash
 aws cloudformation describe-stacks \
@@ -97,15 +97,15 @@ aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs"
 ```
 
-Can luu lai hai gia tri:
+Các output quan trọng:
 
-- `MasterPublicIp`: dung de SSH vao public EC2.
-- `KeyPairId`: dung de lay private key tu SSM Parameter Store.
-- `LoadBalancerDnsName`: DNS public cua ALB.
+- `MasterPublicIp`: dùng để SSH vào public EC2.
+- `KeyPairId`: dùng để lấy private key từ SSM Parameter Store.
+- `LoadBalancerDnsName`: DNS public của ALB.
 
-## Lay private key
+## Lấy private key
 
-CloudFormation tao `AWS::EC2::KeyPair`. Private key duoc AWS luu trong SSM Parameter Store theo ten `/ec2/keypair/<KeyPairId>`.
+CloudFormation tạo `AWS::EC2::KeyPair`. Private key được AWS lưu trong SSM Parameter Store theo tên `/ec2/keypair/<KeyPairId>`.
 
 ```bash
 aws ssm get-parameter \
@@ -118,7 +118,7 @@ aws ssm get-parameter \
 chmod 400 group7-cfn-keypair.pem
 ```
 
-Voi PowerShell:
+Với PowerShell:
 
 ```powershell
 aws ssm get-parameter `
@@ -135,50 +135,50 @@ icacls.exe group7-cfn-keypair.pem /inheritance:r
 
 ## SSH
 
-SSH vao public EC2:
+SSH vào public EC2:
 
 ```bash
 ssh -i group7-cfn-keypair.pem ubuntu@<MASTER_PUBLIC_IP>
 ```
 
-Tu public EC2, SSH vao private EC2 bang private IP cua worker:
+Từ public EC2, SSH vào private EC2 bằng private IP của worker:
 
 ```bash
 ssh -i group7-cfn-keypair.pem ubuntu@<WORKER_PRIVATE_IP>
 ```
 
-Security Group cua private EC2 chi mo SSH port 22 tu Security Group cua public EC2, nen private EC2 khong bi truy cap truc tiep tu Internet.
+Security Group của private EC2 chỉ mở SSH port `22` từ Security Group của public EC2, nên private EC2 không bị truy cập trực tiếp từ Internet.
 
-## Kiem tra template
+## Kiểm tra template
 
-Neu da cai `cfn-lint`:
+Nếu đã cài `cfn-lint`:
 
 ```bash
 cfn-lint main.yaml modules/vpc/vpc.yaml modules/security-group/security-group.yaml modules/ec2/ec2.yaml modules/alb/alb.yaml
 ```
 
-Kiem tra voi CloudFormation:
+Kiểm tra bằng AWS CLI:
 
 ```bash
 aws cloudformation validate-template --template-body file://main.yaml
 ```
 
-Luu y: `validate-template` chi validate root template local. Khi deploy nested stacks, hay dung `package` truoc.
+Lưu ý: `validate-template` chỉ validate root template local. Khi deploy nested stacks, cần chạy `package` trước.
 
 ## GitHub Actions
 
-Thu muc `.github/workflows` co 2 workflow rieng cho CloudFormation:
+Thư mục `.github/workflows` có 2 workflow riêng cho CloudFormation:
 
-- `cloudformation-validate.yml`: chay khi Pull Request thay doi `infra/cloudformation/**`, dung `cfn-lint` va `aws cloudformation validate-template`.
-- `cloudformation-deploy.yml`: chay khi merge/push vao `main` co thay doi `infra/cloudformation/**`, dung `aws cloudformation package` va `aws cloudformation deploy`.
+- `cloudformation-validate.yml`: chạy khi Pull Request thay đổi `infra/cloudformation/**`, dùng `cfn-lint` và `aws cloudformation validate-template`.
+- `cloudformation-deploy.yml`: chạy khi merge hoặc push vào `main` có thay đổi `infra/cloudformation/**`, dùng `aws cloudformation package` và `aws cloudformation deploy`.
 
-Can cau hinh GitHub repository variables:
+Cần cấu hình GitHub repository variables:
 
 - `IAM_ROLE_ARN`: IAM Role ARN cho GitHub Actions OIDC.
-- `ALLOWED_SSH_CIDR`: IP/CIDR duoc phep SSH vao public EC2, vi du `203.0.113.10/32`.
-- `CFN_ARTIFACT_BUCKET`: S3 bucket upload nested templates. Nen dung output `cloudformation_artifact_bucket_name` cua `infra/cicd`. Neu bo trong, workflow dung `group7-cfn-artifacts`.
+- `ALLOWED_SSH_CIDR`: IP/CIDR được phép SSH vào public EC2, ví dụ `203.0.113.10/32`.
+- `CFN_ARTIFACT_BUCKET`: S3 bucket upload nested templates. Nên dùng output `cloudformation_artifact_bucket_name` của `infra/cicd`. Nếu bỏ trống, workflow dùng `group7-cfn-artifacts`.
 
-## Xoa tai nguyen
+## Xóa tài nguyên
 
 ```bash
 aws cloudformation delete-stack \
