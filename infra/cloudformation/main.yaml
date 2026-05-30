@@ -1,0 +1,178 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Group 7 AWS infrastructure with nested CloudFormation stacks."
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: group7
+    Description: Prefix used for resource names.
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC.
+
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for public subnet 1.
+
+  PublicSubnet2Cidr:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for public subnet 2.
+
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.0.3.0/24
+    Description: CIDR block for the private subnet.
+
+  AllowedSshCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR allowed to SSH to the public EC2 instance. Replace with your public IP /32.
+    AllowedPattern: "^(([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2})$"
+
+  KeyPairName:
+    Type: String
+    Default: group7-cfn-keypair
+    Description: Name for the EC2 key pair created by this stack.
+
+  UbuntuAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+    Description: Ubuntu 22.04 LTS AMI resolved from AWS Systems Manager Parameter Store.
+
+  MasterInstanceType:
+    Type: String
+    Default: t2.small
+    Description: Instance type for the public master node.
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+  WorkerInstanceType:
+    Type: String
+    Default: t2.large
+    Description: Instance type for private worker nodes.
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+Resources:
+  KeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Ref KeyPairName
+      KeyType: rsa
+      KeyFormat: pem
+      Tags:
+        - Key: Name
+          Value: !Ref KeyPairName
+
+  VpcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: modules/vpc/vpc.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcCidr: !Ref VpcCidr
+        PublicSubnet1Cidr: !Ref PublicSubnet1Cidr
+        PublicSubnet2Cidr: !Ref PublicSubnet2Cidr
+        PrivateSubnetCidr: !Ref PrivateSubnetCidr
+
+  SecurityGroupsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: modules/security-group/security-group.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        AllowedSshCidr: !Ref AllowedSshCidr
+
+  Ec2Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: modules/ec2/ec2.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        AmiId: !Ref UbuntuAmiId
+        KeyName: !Ref KeyPair
+        MasterInstanceType: !Ref MasterInstanceType
+        WorkerInstanceType: !Ref WorkerInstanceType
+        PublicSubnetIds: !GetAtt VpcStack.Outputs.PublicSubnetIds
+        PrivateSubnetId: !GetAtt VpcStack.Outputs.PrivateSubnetId
+        PublicEc2SecurityGroupId: !GetAtt SecurityGroupsStack.Outputs.PublicEc2SecurityGroupId
+        PrivateEc2SecurityGroupId: !GetAtt SecurityGroupsStack.Outputs.PrivateEc2SecurityGroupId
+
+  AlbStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: modules/alb/alb.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        PublicSubnetIds: !GetAtt VpcStack.Outputs.PublicSubnetIds
+        AlbSecurityGroupId: !GetAtt SecurityGroupsStack.Outputs.AlbSecurityGroupId
+        WorkerInstanceIds: !GetAtt Ec2Stack.Outputs.WorkerInstanceIds
+
+Outputs:
+  VpcId:
+    Description: VPC ID.
+    Value: !GetAtt VpcStack.Outputs.VpcId
+
+  PublicSubnetIds:
+    Description: Comma-separated public subnet IDs.
+    Value: !GetAtt VpcStack.Outputs.PublicSubnetIds
+
+  PrivateSubnetId:
+    Description: Private subnet ID.
+    Value: !GetAtt VpcStack.Outputs.PrivateSubnetId
+
+  DefaultSecurityGroupId:
+    Description: Default security group created with the VPC.
+    Value: !GetAtt VpcStack.Outputs.DefaultSecurityGroupId
+
+  PublicEc2SecurityGroupId:
+    Description: Security group for the public EC2 instance.
+    Value: !GetAtt SecurityGroupsStack.Outputs.PublicEc2SecurityGroupId
+
+  PrivateEc2SecurityGroupId:
+    Description: Security group for private EC2 instances.
+    Value: !GetAtt SecurityGroupsStack.Outputs.PrivateEc2SecurityGroupId
+
+  AlbSecurityGroupId:
+    Description: Security group for the application load balancer.
+    Value: !GetAtt SecurityGroupsStack.Outputs.AlbSecurityGroupId
+
+  MasterInstanceId:
+    Description: Public master EC2 instance ID.
+    Value: !GetAtt Ec2Stack.Outputs.MasterInstanceId
+
+  MasterPublicIp:
+    Description: Public IP address of the master EC2 instance.
+    Value: !GetAtt Ec2Stack.Outputs.MasterPublicIp
+
+  WorkerInstanceIds:
+    Description: Comma-separated private worker EC2 instance IDs.
+    Value: !GetAtt Ec2Stack.Outputs.WorkerInstanceIds
+
+  LoadBalancerDnsName:
+    Description: Public DNS name of the application load balancer.
+    Value: !GetAtt AlbStack.Outputs.LoadBalancerDnsName
+
+  KeyPairId:
+    Description: Key pair ID. Use it to retrieve the private key from SSM Parameter Store.
+    Value: !GetAtt KeyPair.KeyPairId

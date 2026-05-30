@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Security groups for public and private EC2 instances."
+
+Parameters:
+  ProjectName:
+    Type: String
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  AllowedSshCidr:
+    Type: String
+    AllowedPattern: "^(([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2})$"
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-alb-sg"
+      GroupDescription: Allow HTTP traffic from the internet to the application load balancer.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: HTTP from anywhere.
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic.
+          IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-alb-sg"
+
+  PublicEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-public-ec2-sg"
+      GroupDescription: Allow SSH to the public EC2 instance from a trusted CIDR.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: SSH from allowed CIDR.
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSshCidr
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic.
+          IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-public-ec2-sg"
+
+  PrivateEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-private-ec2-sg"
+      GroupDescription: Allow SSH to private EC2 instances only from the public EC2 security group.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: SSH from the public EC2 instance.
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref PublicEc2SecurityGroup
+        - Description: HTTP from the application load balancer.
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic through the NAT gateway.
+          IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-private-ec2-sg"
+
+Outputs:
+  AlbSecurityGroupId:
+    Description: Application load balancer security group ID.
+    Value: !Ref AlbSecurityGroup
+
+  PublicEc2SecurityGroupId:
+    Description: Public EC2 security group ID.
+    Value: !Ref PublicEc2SecurityGroup
+
+  PrivateEc2SecurityGroupId:
+    Description: Private EC2 security group ID.
+    Value: !Ref PrivateEc2SecurityGroup

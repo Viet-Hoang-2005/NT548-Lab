@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Public master EC2 instance and private worker EC2 instances."
+
+Parameters:
+  ProjectName:
+    Type: String
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+
+  MasterInstanceType:
+    Type: String
+
+  WorkerInstanceType:
+    Type: String
+
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+
+  PrivateSubnetId:
+    Type: AWS::EC2::Subnet::Id
+
+  PublicEc2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  PrivateEc2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+  MasterInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref MasterInstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Select [0, !Ref PublicSubnetIds]
+      SecurityGroupIds:
+        - !Ref PublicEc2SecurityGroupId
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-master-node"
+
+  WorkerInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref WorkerInstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnetId
+      SecurityGroupIds:
+        - !Ref PrivateEc2SecurityGroupId
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-worker-node-1"
+
+  WorkerInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref WorkerInstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PrivateSubnetId
+      SecurityGroupIds:
+        - !Ref PrivateEc2SecurityGroupId
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-worker-node-2"
+
+Outputs:
+  MasterInstanceId:
+    Description: Public master EC2 instance ID.
+    Value: !Ref MasterInstance
+
+  MasterPublicIp:
+    Description: Public IP of the master EC2 instance.
+    Value: !GetAtt MasterInstance.PublicIp
+
+  WorkerInstanceIds:
+    Description: Comma-separated private worker EC2 instance IDs.
+    Value: !Join [",", [!Ref WorkerInstance1, !Ref WorkerInstance2]]
+
+  WorkerPrivateIps:
+    Description: Comma-separated private IPs of worker EC2 instances.
+    Value: !Join [",", [!GetAtt WorkerInstance1.PrivateIp, !GetAtt WorkerInstance2.PrivateIp]]
