@@ -1,0 +1,76 @@
+name: "CloudFormation Deploy"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/cloudformation/**'
+
+env:
+  AWS_REGION: ap-southeast-1
+  CFN_STACK_NAME: group7-cloudformation-lab
+  CFN_ARTIFACT_BUCKET: ${{ vars.CFN_ARTIFACT_BUCKET || 'group7-cfn-artifacts' }}
+  ALLOWED_SSH_CIDR: ${{ vars.ALLOWED_SSH_CIDR }}
+
+jobs:
+  cloudformation-deploy:
+    name: "CloudFormation Deploy"
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        working-directory: infra/cloudformation
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check Required Variables
+        run: |
+          if [ -z "$ALLOWED_SSH_CIDR" ]; then
+            echo "Repository variable ALLOWED_SSH_CIDR is required, for example 203.0.113.10/32."
+            exit 1
+          fi
+
+      - name: Install cfn-lint
+        run: python -m pip install --upgrade pip cfn-lint
+
+      - name: Run cfn-lint
+        run: |
+          cfn-lint main.yaml \
+            modules/vpc/vpc.yaml \
+            modules/security-group/security-group.yaml \
+            modules/ec2/ec2.yaml \
+            modules/alb/alb.yaml
+
+      - name: Package Nested Stacks
+        run: |
+          aws cloudformation package \
+            --template-file main.yaml \
+            --s3-bucket "$CFN_ARTIFACT_BUCKET" \
+            --output-template-file packaged.yaml \
+            --region "$AWS_REGION"
+
+      - name: Deploy CloudFormation Stack
+        run: |
+          aws cloudformation deploy \
+            --template-file packaged.yaml \
+            --stack-name "$CFN_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --capabilities CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              ProjectName=group7 \
+              AllowedSshCidr="$ALLOWED_SSH_CIDR" \
+              KeyPairName=group7-cfn-keypair \
+              MasterInstanceType=t2.small \
+              WorkerInstanceType=t2.large

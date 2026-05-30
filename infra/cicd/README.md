@@ -1,14 +1,52 @@
-# Hạ tầng Khởi tạo (Bootstrap Infrastructure)
+# Bootstrap infrastructure for CI/CD
 
-Thư mục `infra/cicd` này chứa mã nguồn Terraform dùng để **khởi tạo** cho quy trình CI/CD và quản lý trạng thái (State Management).
+Thu muc `infra/cicd` dung Terraform de tao cac tai nguyen nen tang cho GitHub Actions CI/CD.
 
-## Các tài nguyên được tạo ra
+Stack nay khong tao ha tang ung dung chinh nhu VPC, EC2 hay ALB. No tao cac thanh phan dung chung de pipeline Terraform va CloudFormation co the chay an toan.
 
-Khi chạy Terraform trong thư mục này, các tài nguyên sau sẽ được sinh ra trên AWS:
-1. **S3 Bucket (`group7-tfstate-artifact`)**: Dùng để lưu trữ an toàn file trạng thái (`terraform.tfstate`) của hạ tầng chính.
+## Tai nguyen duoc tao
 
-2. **DynamoDB Table (`group7-tfstate-locks`)**: Dùng để khóa (Lock) file trạng thái mỗi khi có tiến trình đang ghi, tránh đụng độ (Race condition) giữa các luồng CI/CD.
+1. `group7-tfstate-artifact`
+   S3 bucket luu remote state cua Terraform. Bucket bat versioning, server-side encryption va chan public access.
 
-3. **GitHub OIDC Provider**: Thiết lập mối quan hệ tin cậy (Trust relationship) giữa AWS và GitHub Actions.
+2. `group7-tfstate-locks`
+   DynamoDB table dung cho Terraform state locking, tranh nhieu pipeline ghi state cung luc.
 
-4. **IAM Role (`github-actions-tf-role`)**: Vai trò (Role) đặc biệt được cấp quyền (mặc định là AdministratorAccess để phục vụ lab) mà GitHub Actions sẽ mượn tạm để chạy lệnh triển khai hạ tầng.
+3. `group7-cfn-artifacts`
+   S3 bucket luu packaged CloudFormation nested templates khi workflow chay `aws cloudformation package`. Bucket bat versioning, server-side encryption va chan public access.
+
+4. GitHub OIDC Provider
+   Thiet lap trust relationship giua AWS va GitHub Actions.
+
+5. `github-actions-tf-role`
+   IAM Role cho GitHub Actions assume bang OIDC. Role dang gan `AdministratorAccess` de phuc vu bai lab.
+
+## Cach chay
+
+```bash
+cd infra/cicd
+terraform init
+terraform plan
+terraform apply
+```
+
+## Outputs can dung
+
+Sau khi apply, lay outputs:
+
+```bash
+terraform output
+```
+
+Gan cac gia tri vao GitHub repository variables:
+
+- `github_actions_role_arn` -> `IAM_ROLE_ARN`
+- `cloudformation_artifact_bucket_name` -> `CFN_ARTIFACT_BUCKET`
+
+Ngoai ra can tu cau hinh:
+
+- `ALLOWED_SSH_CIDR`: IP/CIDR duoc phep SSH vao public EC2, vi du `203.0.113.10/32`.
+
+## Luu y
+
+S3 bucket name la global unique tren AWS. Neu ten mac dinh da bi trung, doi gia tri trong `variables.tf` hoac truyen bang `terraform.tfvars`.
