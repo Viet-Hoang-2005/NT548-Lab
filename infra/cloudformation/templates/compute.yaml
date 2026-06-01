@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: EC2 stack for NT548 Lab 2 - master and worker nodes
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: group7-cfn
+
+  PublicSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnetId:
+    Type: AWS::EC2::Subnet::Id
+
+  PublicEc2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  PrivateEc2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 KeyPair name for SSH access
+
+  MasterInstanceType:
+    Type: String
+    Default: t2.small
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+
+  WorkerInstanceType:
+    Type: String
+    Default: t2.large
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+
+  UbuntuAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+
+Resources:
+  MasterNode:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !Ref MasterInstanceType
+      SubnetId: !Ref PublicSubnet1Id
+      SecurityGroupIds:
+        - !Ref PublicEc2SecurityGroupId
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-master-node"
+
+  WorkerNode1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !Ref WorkerInstanceType
+      SubnetId: !Ref PrivateSubnetId
+      SecurityGroupIds:
+        - !Ref PrivateEc2SecurityGroupId
+      KeyName: !Ref KeyName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install -y nginx
+          systemctl enable nginx
+          systemctl start nginx
+          echo "<h1>${ProjectName} - worker node 1</h1>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-worker-node-1"
+
+  WorkerNode2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !Ref WorkerInstanceType
+      SubnetId: !Ref PrivateSubnetId
+      SecurityGroupIds:
+        - !Ref PrivateEc2SecurityGroupId
+      KeyName: !Ref KeyName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install -y nginx
+          systemctl enable nginx
+          systemctl start nginx
+          echo "<h1>${ProjectName} - worker node 2</h1>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-worker-node-2"
+
+Outputs:
+  MasterInstanceId:
+    Value: !Ref MasterNode
+
+  MasterPublicIp:
+    Value: !GetAtt MasterNode.PublicIp
+
+  Worker1InstanceId:
+    Value: !Ref WorkerNode1
+
+  Worker2InstanceId:
+    Value: !Ref WorkerNode2
+
+  WorkerPrivateIps:
+    Value: !Join
+      - ","
+      - - !GetAtt WorkerNode1.PrivateIp
+        - !GetAtt WorkerNode2.PrivateIp

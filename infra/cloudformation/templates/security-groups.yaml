@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Security groups for NT548 Lab 2
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: group7-cfn
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  AllowedSshCidr:
+    Type: String
+    Description: CIDR allowed to SSH into master node. Use your public IP with /32.
+    Default: 0.0.0.0/0
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-alb-sg"
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Allow HTTP from Internet
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-alb-sg"
+
+  PublicEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-public-ec2-sg"
+      GroupDescription: Security group for public master EC2 instance
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: SSH from allowed IP only
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSshCidr
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-public-ec2-sg"
+
+  PrivateEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-private-ec2-sg"
+      GroupDescription: Security group for private worker EC2 instances
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Allow all traffic from public master EC2 security group
+          IpProtocol: -1
+          SourceSecurityGroupId: !Ref PublicEc2SecurityGroup
+        - Description: Allow HTTP from ALB
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-private-ec2-sg"
+
+Outputs:
+  AlbSecurityGroupId:
+    Value: !Ref AlbSecurityGroup
+
+  PublicEc2SecurityGroupId:
+    Value: !Ref PublicEc2SecurityGroup
+
+  PrivateEc2SecurityGroupId:
+    Value: !Ref PrivateEc2SecurityGroup

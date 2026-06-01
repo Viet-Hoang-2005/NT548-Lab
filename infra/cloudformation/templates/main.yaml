@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Root nested stack for NT548 Lab 2 CloudFormation infrastructure
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: group7-cfn
+    AllowedPattern: "[a-zA-Z0-9-]+"
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  AllowedSshCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Use your public IP with /32 for better security
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 KeyPair name
+
+  MasterInstanceType:
+    Type: String
+    Default: t2.small
+
+  WorkerInstanceType:
+    Type: String
+    Default: t2.large
+
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/network.yaml
+      TimeoutInMinutes: 15
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcCidr: !Ref VpcCidr
+
+  SecurityGroupsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/security-groups.yaml
+      TimeoutInMinutes: 10
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        AllowedSshCidr: !Ref AllowedSshCidr
+
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/compute.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        ProjectName: !Ref ProjectName
+        PublicSubnet1Id: !GetAtt NetworkStack.Outputs.PublicSubnet1Id
+        PrivateSubnetId: !GetAtt NetworkStack.Outputs.PrivateSubnetId
+        PublicEc2SecurityGroupId: !GetAtt SecurityGroupsStack.Outputs.PublicEc2SecurityGroupId
+        PrivateEc2SecurityGroupId: !GetAtt SecurityGroupsStack.Outputs.PrivateEc2SecurityGroupId
+        KeyName: !Ref KeyName
+        MasterInstanceType: !Ref MasterInstanceType
+        WorkerInstanceType: !Ref WorkerInstanceType
+
+  AlbStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: templates/alb.yaml
+      TimeoutInMinutes: 15
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PublicSubnet1Id: !GetAtt NetworkStack.Outputs.PublicSubnet1Id
+        PublicSubnet2Id: !GetAtt NetworkStack.Outputs.PublicSubnet2Id
+        AlbSecurityGroupId: !GetAtt SecurityGroupsStack.Outputs.AlbSecurityGroupId
+        Worker1InstanceId: !GetAtt ComputeStack.Outputs.Worker1InstanceId
+        Worker2InstanceId: !GetAtt ComputeStack.Outputs.Worker2InstanceId
+
+Outputs:
+  VpcId:
+    Value: !GetAtt NetworkStack.Outputs.VpcId
+
+  MasterPublicIp:
+    Value: !GetAtt ComputeStack.Outputs.MasterPublicIp
+
+  WorkerPrivateIps:
+    Value: !GetAtt ComputeStack.Outputs.WorkerPrivateIps
+
+  AlbDnsName:
+    Value: !GetAtt AlbStack.Outputs.AlbDnsName
