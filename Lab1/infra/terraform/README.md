@@ -19,7 +19,7 @@ Hạ tầng được triển khai bao gồm các thành phần sau:
 - **EC2 Instances**:
   - **1 Master Node** (`t2.micro`) nằm ở Public Subnet.
   - **2 Worker Nodes** (`t2.micro`) nằm ở Private Subnet.
-  - Tự động tạo và quản lý RSA SSH Key Pair (`lab1-keypair`).
+  - Tự động tạo và quản lý RSA SSH Key Pair (`group7-keypair`).
   - Hệ điều hành: Ubuntu 22.04 LTS.
 
 ## Cấu trúc Module
@@ -32,7 +32,9 @@ infra/terraform/
 ├── variables.tf         # Các biến toàn cục
 ├── outputs.tf           # Thông tin xuất ra sau khi chạy (IP, Key,...)
 └── modules/
-    ├── vpc/             # Module cấu hình mạng
+    ├── vpc/             # Module lõi mạng (VPC, Subnets, IGW)
+    ├── nat_gateway/     # Module cấp phát IP và NAT Gateway
+    ├── route_tables/    # Module định tuyến
     ├── security_group/  # Module tường lửa
     └── ec2/             # Module máy ảo
 ```
@@ -67,22 +69,22 @@ Sau khi lệnh `apply` chạy xong, hệ thống sẽ tự động tạo một c
 
 ```bash
 # Lấy nội dung file pem
-terraform output -raw private_key_pem > lab1-keypair.pem
+terraform output -raw private_key_pem > group7-keypair.pem
 
 # Cấp quyền cho file pem
 # Linux / MacOS:
-chmod 400 lab1-keypair.pem
+chmod 400 group7-keypair.pem
 
 # Windows (Powershell):
-icacls.exe lab1-keypair.pem /reset
-icacls.exe lab1-keypair.pem /GRANT:R "$($env:USERNAME):(R)"
-icacls.exe lab1-keypair.pem /inheritance:r
+icacls.exe group7-keypair.pem /reset
+icacls.exe group7-keypair.pem /GRANT:R "$($env:USERNAME):(R)"
+icacls.exe group7-keypair.pem /inheritance:r
 ```
 
 **Bước 5: Kết nối vào máy chủ**
 Lấy Public IP của Master Node ở phần `Outputs` của Terraform và tiến hành SSH:
 ```bash
-ssh -i lab1-keypair.pem ubuntu@<MASTER_NODE_PUBLIC_IP>
+ssh -i group7-keypair.pem ubuntu@<MASTER_NODE_PUBLIC_IP>
 ```
 
 ## Hủy tài nguyên (Clean up)
