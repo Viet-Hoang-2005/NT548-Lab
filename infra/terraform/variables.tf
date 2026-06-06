@@ -13,7 +13,7 @@ variable "allowed_ssh_ip" {
 variable "instance_type" {
   description = "EC2 Instance type"
   type        = string
-  default     = "t3.small"
+  default     = "t3.micro"
 }
 
 variable "vpc_cidr" {
