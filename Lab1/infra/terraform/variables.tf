@@ -27,3 +27,9 @@ variable "ami_name_filter" {
   type        = string
   default     = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
 }
+
+variable "ami_owners" {
+  description = "The owner ID for the EC2 AMI"
+  type        = list(string)
+  default     = ["099720109477"]
+}

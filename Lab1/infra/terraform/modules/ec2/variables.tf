@@ -32,3 +32,8 @@ variable "ami_name_filter" {
   description = "The name filter for the EC2 AMI"
   type        = string
 }
+
+variable "ami_owners" {
+  description = "The owner ID for the EC2 AMI"
+  type        = list(string)
+}

@@ -61,4 +61,5 @@ module "ec2" {
   key_name          = aws_key_pair.generated_key.key_name
   instance_type     = var.instance_type
   ami_name_filter   = var.ami_name_filter
+  ami_owners        = var.ami_owners
 }
