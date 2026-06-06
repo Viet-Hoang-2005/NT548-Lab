@@ -13,17 +13,29 @@ variable "allowed_ssh_ip" {
 variable "master_instance_type" {
   description = "EC2 Instance type for Master Node"
   type        = string
-  default     = "t2.small"
+  default     = "t3.small"
 }
 
 variable "worker_instance_type" {
   description = "EC2 Instance type for Worker Nodes"
   type        = string
-  default     = "t2.large"
+  default     = "t3.large"
 }
 
 variable "vpc_cidr" {
   description = "CIDR block for VPC"
   type        = string
   default     = "10.0.0.0/16"
+}
+
+variable "ami_name_filter" {
+  description = "The name filter for the EC2 AMI"
+  type        = string
+  default     = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
+}
+
+variable "ami_owners" {
+  description = "The owner ID for the EC2 AMI"
+  type        = list(string)
+  default     = ["099720109477"]
 }
