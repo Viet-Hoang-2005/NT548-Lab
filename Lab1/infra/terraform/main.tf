@@ -60,4 +60,5 @@ module "ec2" {
   private_sg_id     = module.security_group.private_sg_id
   key_name          = aws_key_pair.generated_key.key_name
   instance_type     = var.instance_type
+  ami_name_filter   = var.ami_name_filter
 }

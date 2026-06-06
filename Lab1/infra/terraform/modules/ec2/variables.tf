@@ -27,3 +27,8 @@ variable "instance_type" {
   description = "Instance type"
   type        = string
 }
+
+variable "ami_name_filter" {
+  description = "The name filter for the EC2 AMI"
+  type        = string
+}
