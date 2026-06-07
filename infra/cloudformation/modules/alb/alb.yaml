@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Application Load Balancer, target group, listener, and worker attachments."
+
+Parameters:
+  ProjectName:
+    Type: String
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+
+  AlbSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  WorkerInstanceIds:
+    Type: CommaDelimitedList
+
+Resources:
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${ProjectName}-k3s-alb"
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref AlbSecurityGroupId
+      Subnets: !Ref PublicSubnetIds
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-k3s-alb"
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${ProjectName}-k3s-tg"
+      VpcId: !Ref VpcId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      Targets:
+        - Id: !Select [0, !Ref WorkerInstanceIds]
+          Port: 80
+        - Id: !Select [1, !Ref WorkerInstanceIds]
+          Port: 80
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-k3s-tg"
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  LoadBalancerArn:
+    Description: Application Load Balancer ARN.
+    Value: !Ref ApplicationLoadBalancer
+
+  LoadBalancerDnsName:
+    Description: Application Load Balancer DNS name.
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  TargetGroupArn:
+    Description: Target group ARN.
+    Value: !Ref TargetGroup

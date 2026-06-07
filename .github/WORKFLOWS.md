@@ -1,43 +1,73 @@
-# GitHub Actions CI/CD cho Terraform
+# GitHub Actions CI/CD
 
-Thư mục workflow chứa các tệp cấu hình quy trình CI/CD chạy trên nền tảng GitHub Actions để tự động hóa việc kiểm thử và triển khai hạ tầng AWS bằng Terraform.
+Thu muc `.github/workflows` chua cac workflow tu dong kiem tra va trien khai ha tang AWS.
 
-**Lưu ý:** Sử dụng cơ chế **AWS OIDC (OpenID Connect)** để xác thực (không cần lưu trữ `AWS_ACCESS_KEY_ID` và `AWS_SECRET_ACCESS_KEY` trên GitHub).
+Tat ca workflow dang dung AWS OIDC, nen khong can luu `AWS_ACCESS_KEY_ID` va `AWS_SECRET_ACCESS_KEY` trong GitHub Secrets. Repository can cau hinh variable `IAM_ROLE_ARN` tro den IAM Role da tao trong `infra/cicd`.
 
-## 1. Workflow: Terraform Plan (`terraform-plan.yml`)
+## 1. Terraform Plan (`terraform-plan.yml`)
 
-**Mục đích:** Kiểm tra lỗi cú pháp, quét lỗ hổng bảo mật và xem trước các thay đổi hạ tầng (báo giá thay đổi) trước khi hợp nhất (merge) mã nguồn.
+**Muc dich:** Kiem tra Terraform truoc khi merge vao `main`.
 
-**Kích hoạt khi:** Có sự kiện tạo mới hoặc cập nhật **Pull Request (PR)** vào nhánh `main` VÀ có thay đổi file bên trong thư mục `infra/terraform/`.
+**Kich hoat khi:** Co Pull Request vao nhanh `main` va co thay doi trong `infra/terraform/**`.
 
-**Luồng hoạt động:**
+**Luong hoat dong:**
 
-1. **Checkout Code:** Kéo mã nguồn về máy ảo Ubuntu.
+1. Checkout source code.
+2. Dang nhap AWS bang OIDC.
+3. Cai Terraform `1.9.0`.
+4. Chay `terraform init`.
+5. Chay `terraform validate`.
+6. Chay Checkov de scan bao mat Terraform.
+7. Chay `terraform plan`.
+8. Comment ket qua vao Pull Request.
+9. Neu Checkov hoac Terraform Plan fail thi workflow fail.
 
-2. **AWS OIDC Auth:** Xin AWS cấp quyền truy cập tạm thời (Dựa vào `IAM_ROLE_ARN` cấu hình sẵn).
+## 2. Terraform Apply (`terraform-apply.yml`)
 
-3. **Terraform Init & Validate:** Kết nối Backend (S3 + DynamoDB) và kiểm tra tính hợp lệ của mã nguồn.
+**Muc dich:** Tu dong deploy ha tang Terraform sau khi code duoc merge vao `main`.
 
-4. **Checkov Security Scan:** Quét toàn bộ mã Terraform để tìm các rủi ro bảo mật (như mở nhầm port, thiếu mã hóa).
+**Kich hoat khi:** Co push hoac merge vao nhanh `main` va co thay doi trong `infra/terraform/**`.
 
-5. **Terraform Plan:** So sánh code hiện tại với hạ tầng thực tế trên AWS và kết xuất ra bản phác thảo thay đổi.
+**Luong hoat dong:**
 
-6. **Comment PR:** Bot của GitHub Actions sẽ tự động chèn kết quả của Plan và Checkov thành một bình luận (comment) ngay trong Pull Request.
+1. Checkout source code.
+2. Dang nhap AWS bang OIDC.
+3. Cai Terraform `1.9.0`.
+4. Chay `terraform init`.
+5. Chay `terraform apply -auto-approve`.
 
-7. **Gatekeeper:** Nếu bước Plan lỗi hoặc Checkov phát hiện rủi ro, Workflow sẽ kết thúc với tín hiệu lỗi (`exit 1`) để báo động người dùng không được Merge.
+## 3. CloudFormation Validate (`cloudformation-validate.yml`)
 
-## 2. Workflow: Terraform Apply (`terraform-apply.yml`)
+**Muc dich:** Kiem tra CloudFormation templates truoc khi merge vao `main`.
 
-**Mục đích:** Chính thức triển khai và áp dụng (apply) các thay đổi mã nguồn lên hạ tầng AWS thực tế (mang gạch vữa đi xây).
+**Kich hoat khi:** Co Pull Request vao nhanh `main` va co thay doi trong `infra/cloudformation/**`.
 
-**Kích hoạt khi:** Có sự kiện **Push trực tiếp** hoặc **Merge (gộp) Pull Request** vào nhánh `main` VÀ có thay đổi file bên trong thư mục `infra/terraform/`.
+**Luong hoat dong:**
 
-**Luồng hoạt động:**
+1. Checkout source code.
+2. Dang nhap AWS bang OIDC.
+3. Cai `cfn-lint`.
+4. Chay `cfn-lint` cho root template va cac nested stack modules.
+5. Chay `aws cloudformation validate-template` cho `main.yaml` va tung module.
+6. Comment ket qua validate vao Pull Request.
 
-1. **Checkout Code:** Kéo mã nguồn chuẩn nhất từ nhánh `main`.
+## 4. CloudFormation Deploy (`cloudformation-deploy.yml`)
 
-2. **AWS OIDC Auth:** Xin quyền AWS.
+**Muc dich:** Tu dong package va deploy CloudFormation nested stacks sau khi code duoc merge vao `main`.
 
-3. **Terraform Init:** Kết nối S3 để đọc State, đồng thời sử dụng DynamoDB để **khóa (Lock)** file State lại, không cho tiến trình khác tranh giành.
+**Kich hoat khi:** Co push hoac merge vao nhanh `main` va co thay doi trong `infra/cloudformation/**`.
 
-4. **Terraform Apply:** Chạy lệnh `terraform apply -auto-approve`. Cờ `-auto-approve` đóng vai trò thay thế câu trả lời "yes" tự động. Máy ảo sẽ gửi các API Requests lên AWS để chính thức **tạo, sửa, hoặc xóa** tài nguyên. Cuối cùng cập nhật lại file `terraform.tfstate` trên S3.
+**Bien GitHub can cau hinh:**
+
+- `IAM_ROLE_ARN`: IAM Role ARN ma GitHub Actions se assume bang OIDC.
+- `ALLOWED_SSH_CIDR`: IP/CIDR duoc phep SSH vao public EC2, nen dat dang `<YOUR_PUBLIC_IP>/32`.
+- `CFN_ARTIFACT_BUCKET`: S3 bucket dung de upload nested templates khi chay `aws cloudformation package`. Nen dung output `cloudformation_artifact_bucket_name` cua `infra/cicd`. Neu khong cau hinh, workflow dung mac dinh `group7-cfn-artifacts`.
+
+**Luong hoat dong:**
+
+1. Checkout source code.
+2. Dang nhap AWS bang OIDC.
+3. Kiem tra `ALLOWED_SSH_CIDR` da duoc cau hinh.
+4. Cai va chay `cfn-lint`.
+5. Chay `aws cloudformation package` de upload nested templates len S3 va tao `packaged.yaml`.
+6. Chay `aws cloudformation deploy` de cap nhat stack `group7-cloudformation-lab`.
