@@ -50,7 +50,7 @@ jobs:
         env:
           APPLY: ${{ steps.apply.outputs.stdout }}
         run: |
-          echo "### Terraform CI/CD Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "### Terraform CI/CD Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Initialization**: \`${{ steps.init.outcome }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Terraform Apply**: \`${{ steps.apply.outcome }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
