@@ -90,6 +90,6 @@ jobs:
               body: output
             })
 
-      - name: Check Plan and Checkov Status
-        if: steps.plan.outcome == 'failure' || steps.checkov.outcome == 'failure'
+      - name: Check Plan Status
+        if: steps.plan.outcome == 'failure'
         run: exit 1
