@@ -24,7 +24,7 @@ phases:
       - test -n "$CFN_ARTIFACT_BUCKET"
       - aws --version
       - cfn-lint --version
-      - taskcat --version
+      - taskcat --help > /dev/null
 
   build:
     commands:
