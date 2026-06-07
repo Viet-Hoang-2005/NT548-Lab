@@ -90,6 +90,15 @@ jobs:
               body: output
             })
 
+      - name: Write Job Summary
+        if: always()
+        run: |
+          echo "### Terraform CI/CD Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "- **Initialization**: \`${{ steps.init.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validation**: \`${{ steps.validate.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Checkov Security Scan**: \`${{ steps.checkov.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Terraform Plan**: \`${{ steps.plan.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+
       - name: Check Plan Status
         if: steps.plan.outcome == 'failure'
         run: exit 1
