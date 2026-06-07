@@ -1,14 +1,14 @@
-output "s3_bucket_name" {
-  value       = aws_s3_bucket.terraform_state.id
-  description = "S3 Bucket name is used to store the state file."
+output "s3_bucket" {
+  value       = module.s3.bucket_name
+  description = "S3 Bucket Name for Terraform State"
 }
 
-output "dynamodb_table_name" {
-  value       = aws_dynamodb_table.terraform_locks.name
-  description = "DynamoDB Table name is used to store the lock file."
+output "dynamodb_table" {
+  value       = module.dynamodb.table_name
+  description = "DynamoDB Table Name for State Locking"
 }
 
 output "github_actions_role_arn" {
-  value       = aws_iam_role.github_actions.arn
-  description = "Role ARN is used to configure into GitHub Actions."
+  value       = module.iam.role_arn
+  description = "IAM Role ARN for GitHub Actions"
 }
