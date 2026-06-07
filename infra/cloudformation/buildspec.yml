@@ -8,6 +8,7 @@ env:
     CFN_TEMPLATE: templates/main.yaml
     CFN_PACKAGED_TEMPLATE: packaged.yaml
     TASKCAT_ENABLED: "false"
+    PIP_CACHE_DIR: /root/.cache/pip
 
 phases:
   install:
@@ -27,6 +28,9 @@ phases:
 
   build:
     commands:
+      - if [ -d infra/cloudformation ]; then cd infra/cloudformation; fi
+      - pwd
+      - ls -la templates
       - |
         TEMPLATE_FILES=(
           templates/main.yaml
@@ -62,3 +66,7 @@ artifacts:
     - "parameters/**/*.json"
     - ".taskcat.yml"
   discard-paths: no
+
+cache:
+  paths:
+    - "/root/.cache/pip/**/*"

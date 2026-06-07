@@ -71,6 +71,11 @@ Resources:
           FromPort: 80
           ToPort: 80
           SourceSecurityGroupId: !Ref AlbSecurityGroup
+        - Description: Allow Kubernetes NodePort 30080 from ALB
+          IpProtocol: tcp
+          FromPort: 30080
+          ToPort: 30080
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
       SecurityGroupEgress:
         - Description: Allow all outbound traffic
           IpProtocol: -1
@@ -78,6 +83,54 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-private-ec2-sg"
+
+  PublicEc2K3sApiIngressFromPrivate:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicEc2SecurityGroup
+      Description: Allow k3s agents to reach the k3s API server
+      IpProtocol: tcp
+      FromPort: 6443
+      ToPort: 6443
+      SourceSecurityGroupId: !Ref PrivateEc2SecurityGroup
+
+  PublicEc2FlannelIngressFromPrivate:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicEc2SecurityGroup
+      Description: Allow k3s flannel VXLAN traffic from worker nodes
+      IpProtocol: udp
+      FromPort: 8472
+      ToPort: 8472
+      SourceSecurityGroupId: !Ref PrivateEc2SecurityGroup
+
+  PrivateEc2FlannelIngressFromPublic:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PrivateEc2SecurityGroup
+      Description: Allow k3s flannel VXLAN traffic from server node
+      IpProtocol: udp
+      FromPort: 8472
+      ToPort: 8472
+      SourceSecurityGroupId: !Ref PublicEc2SecurityGroup
+
+  PrivateEc2KubeletIngressFromPublic:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PrivateEc2SecurityGroup
+      Description: Allow kubelet traffic from server node
+      IpProtocol: tcp
+      FromPort: 10250
+      ToPort: 10250
+      SourceSecurityGroupId: !Ref PublicEc2SecurityGroup
+
+  PrivateEc2ClusterIngressFromPrivate:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PrivateEc2SecurityGroup
+      Description: Allow worker-to-worker cluster traffic
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref PrivateEc2SecurityGroup
 
 Outputs:
   AlbSecurityGroupId:

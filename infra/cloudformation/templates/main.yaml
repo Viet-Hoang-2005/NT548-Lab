@@ -45,6 +45,13 @@ Parameters:
       - t3.medium
       - t3.large
 
+  K3sToken:
+    Type: String
+    NoEcho: true
+    Default: group7-k3s-bootstrap-token
+    MinLength: 10
+    Description: Shared token used by k3s agents to join the k3s server
+
 Resources:
   Ec2KeyPair:
     Type: AWS::EC2::KeyPair
@@ -89,6 +96,7 @@ Resources:
         KeyName: !Ref Ec2KeyPair
         MasterInstanceType: !Ref MasterInstanceType
         WorkerInstanceType: !Ref WorkerInstanceType
+        K3sToken: !Ref K3sToken
 
   AlbStack:
     Type: AWS::CloudFormation::Stack
@@ -148,6 +156,10 @@ Outputs:
   WorkerPrivateIps:
     Description: Comma-separated private IP addresses of worker EC2 instances
     Value: !GetAtt ComputeStack.Outputs.WorkerPrivateIps
+
+  MasterPrivateIp:
+    Description: Private IP address of the k3s server node
+    Value: !GetAtt ComputeStack.Outputs.MasterPrivateIp
 
   AlbDnsName:
     Description: Public DNS name of the Application Load Balancer

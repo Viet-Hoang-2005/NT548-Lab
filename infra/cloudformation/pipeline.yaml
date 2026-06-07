@@ -76,6 +76,13 @@ Parameters:
       - "false"
     Description: Run Taskcat integration tests in CodeBuild. Set false to avoid creating test resources.
 
+  K3sToken:
+    Type: String
+    NoEcho: true
+    Default: group7-k3s-bootstrap-token
+    MinLength: 10
+    Description: Shared token used by k3s agents to join the k3s server.
+
 Conditions:
   IsTaskcatEnabled: !Equals [!Ref TaskcatEnabled, "true"]
 
@@ -264,6 +271,9 @@ Resources:
             Value: !Ref ArtifactBucket
           - Name: TASKCAT_ENABLED
             Value: !If [IsTaskcatEnabled, "true", "false"]
+      Cache:
+        Type: S3
+        Location: !Sub "${ArtifactBucket}/codebuild-cache"
       TimeoutInMinutes: 60
 
   CloudFormationPipeline:
@@ -325,7 +335,8 @@ Resources:
                     "VpcCidr": "${VpcCidr}",
                     "AllowedSshCidr": "${AllowedSshCidr}",
                     "MasterInstanceType": "${MasterInstanceType}",
-                    "WorkerInstanceType": "${WorkerInstanceType}"
+                    "WorkerInstanceType": "${WorkerInstanceType}",
+                    "K3sToken": "${K3sToken}"
                   }
               InputArtifacts:
                 - Name: BuildOutput

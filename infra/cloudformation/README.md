@@ -38,13 +38,27 @@ infra/cloudformation/
 
 CloudFormation cũng tạo EC2 KeyPair tự động trong root stack. Private key được AWS lưu trong SSM Parameter Store theo đường dẫn `/ec2/keypair/<KeyPairId>`.
 
+## Tái sử dụng hạ tầng cho Lab 2 câu 3
+
+Hạ tầng này được thiết kế để dùng tiếp cho pipeline microservices ở câu 3:
+
+- Public EC2 `master-node` được bootstrap thành k3s server/control-plane.
+- Hai private EC2 `worker-node-1` và `worker-node-2` được bootstrap thành k3s agent/worker.
+- Worker nodes kết nối tới k3s server qua private IP của master, port `6443`.
+- ALB nhận HTTP port `80` từ Internet và forward vào worker nodes ở Kubernetes NodePort `30080`.
+- Khi triển khai microservices ở câu 3, Kubernetes Service nên dùng `type: NodePort` và `nodePort: 30080` để app truy cập được qua `http://<AlbDnsName>`.
+
+Tham số `K3sToken` là shared token để worker join vào k3s server. Trong môi trường lab có default token để dễ chạy, còn khi triển khai thật nên truyền token riêng và không commit token vào source.
+
 ## Bảo mật
 
 - Public EC2 chỉ mở SSH port `22` từ tham số `AllowedSshCidr`.
+- Public EC2 mở thêm k3s API port `6443` từ Security Group của private EC2 để worker nodes join cluster.
 - Giá trị mặc định của `AllowedSshCidr` là `203.0.113.10/32`, đây là IP ví dụ không dùng để truy cập thật. Khi deploy cần thay bằng public IP của người dùng, ví dụ `203.0.113.10/32`.
 - Private EC2 không có public IP.
 - Private EC2 chỉ cho phép SSH port `22` từ Security Group của public EC2.
-- Private EC2 cho phép HTTP port `80` từ Security Group của ALB.
+- Private EC2 cho phép Kubernetes NodePort `30080` từ Security Group của ALB.
+- Các port nội bộ cho k3s gồm UDP `8472` cho flannel VXLAN và TCP `10250` cho kubelet.
 - Security Group, ALB, Target Group và KeyPair không dùng physical name cố định để tránh lỗi trùng tên khi Taskcat hoặc pipeline chạy nhiều lần.
 
 ## Quy trình CI/CD
@@ -97,6 +111,7 @@ aws cloudformation deploy \
     AllowedSshCidr=${MY_PUBLIC_IP}/32 \
     MasterInstanceType=t2.small \
     WorkerInstanceType=t2.large \
+    K3sToken=group7-k3s-bootstrap-token \
     TaskcatEnabled=true
 ```
 
@@ -118,6 +133,7 @@ aws cloudformation deploy `
     AllowedSshCidr=$MY_PUBLIC_IP/32 `
     MasterInstanceType=t2.small `
     WorkerInstanceType=t2.large `
+    K3sToken=group7-k3s-bootstrap-token `
     TaskcatEnabled=true
 ```
 
@@ -190,6 +206,7 @@ Các output quan trọng:
 - `DefaultSecurityGroupId`: Default Security Group của VPC.
 - `MasterPublicIp`: public IP của EC2 public.
 - `WorkerPrivateIps`: private IP của 2 EC2 private.
+- `MasterPrivateIp`: private IP của k3s server.
 - `AlbDnsName`: DNS public của ALB.
 - `KeyPairId`: ID dùng để lấy private key từ SSM Parameter Store.
 
@@ -233,6 +250,78 @@ Từ public EC2, SSH vào private EC2:
 ssh -i group7-cfn-keypair.pem ubuntu@<WORKER_PRIVATE_IP>
 ```
 
+## Kiểm tra k3s sau khi deploy
+
+SSH vào public EC2 master node:
+
+```bash
+ssh -i group7-cfn-keypair.pem ubuntu@<MASTER_PUBLIC_IP>
+```
+
+Kiểm tra cluster:
+
+```bash
+sudo kubectl get nodes -o wide
+sudo kubectl get pods -A
+```
+
+Kết quả mong đợi là có 3 nodes:
+
+- `group7-cfn-master`
+- `group7-cfn-worker-1`
+- `group7-cfn-worker-2`
+
+Ví dụ deploy nhanh một service test qua NodePort `30080`:
+
+```bash
+cat <<'EOF' > demo-nodeport.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-nginx
+  template:
+    metadata:
+      labels:
+        app: demo-nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-nginx
+spec:
+  type: NodePort
+  selector:
+    app: demo-nginx
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
+EOF
+
+sudo kubectl apply -f demo-nodeport.yaml
+sudo kubectl get pods -o wide
+sudo kubectl get svc demo-nginx
+```
+
+Sau đó mở:
+
+```text
+http://<AlbDnsName>
+```
+
+Nếu service chạy đúng, ALB sẽ forward traffic vào NodePort `30080` trên worker nodes.
+
 ## Test cases
 
 | Test case | Công cụ | Kết quả mong đợi |
@@ -247,7 +336,8 @@ ssh -i group7-cfn-keypair.pem ubuntu@<WORKER_PRIVATE_IP>
 | Kiểm tra EC2 public | AWS Console/CLI | Master node nằm trong public subnet và có public IP |
 | Kiểm tra EC2 private | AWS Console/CLI | Worker nodes nằm trong private subnet và không có public IP |
 | Kiểm tra bảo mật SSH | Security Group | Public EC2 chỉ mở SSH từ `AllowedSshCidr`, private EC2 chỉ mở SSH từ public EC2 SG |
-| Kiểm tra ALB | Browser/curl | `http://<AlbDnsName>` trả response từ worker node |
+| Kiểm tra k3s cluster | `kubectl get nodes` | Master và 2 worker nodes ở trạng thái `Ready` |
+| Kiểm tra ALB cho app câu 3 | Browser/curl | `http://<AlbDnsName>` trả response từ Kubernetes Service NodePort `30080` |
 
 ## Xóa tài nguyên
 

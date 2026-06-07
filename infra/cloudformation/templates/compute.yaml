@@ -53,6 +53,12 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
 
+  K3sToken:
+    Type: String
+    NoEcho: true
+    MinLength: 10
+    Description: Shared token used by k3s agents to join the k3s server
+
 Resources:
   MasterNode:
     Type: AWS::EC2::Instance
@@ -63,6 +69,16 @@ Resources:
       SecurityGroupIds:
         - !Ref PublicEc2SecurityGroupId
       KeyName: !Ref KeyName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          apt-get update -y
+          apt-get install -y curl
+          curl -sfL https://get.k3s.io | K3S_TOKEN="${K3sToken}" INSTALL_K3S_EXEC="server --node-name ${ProjectName}-master --write-kubeconfig-mode 644 --disable traefik" sh -s -
+          mkdir -p /home/ubuntu/.kube
+          cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+          chown -R ubuntu:ubuntu /home/ubuntu/.kube
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-master-node"
@@ -77,13 +93,18 @@ Resources:
         - !Ref PrivateEc2SecurityGroupId
       KeyName: !Ref KeyName
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          apt-get update -y
-          apt-get install -y nginx
-          systemctl enable nginx
-          systemctl start nginx
-          echo "<h1>${ProjectName} - worker node 1</h1>" > /var/www/html/index.html
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash
+              set -euxo pipefail
+              apt-get update -y
+              apt-get install -y curl
+              until curl -k --connect-timeout 5 "https://${MasterPrivateIp}:6443" >/dev/null 2>&1; do
+                sleep 10
+              done
+              curl -sfL https://get.k3s.io | K3S_URL="https://${MasterPrivateIp}:6443" K3S_TOKEN="${K3sToken}" INSTALL_K3S_EXEC="agent --node-name ${ProjectName}-worker-1" sh -s -
+            - MasterPrivateIp: !GetAtt MasterNode.PrivateIp
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-worker-node-1"
@@ -98,13 +119,18 @@ Resources:
         - !Ref PrivateEc2SecurityGroupId
       KeyName: !Ref KeyName
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          apt-get update -y
-          apt-get install -y nginx
-          systemctl enable nginx
-          systemctl start nginx
-          echo "<h1>${ProjectName} - worker node 2</h1>" > /var/www/html/index.html
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash
+              set -euxo pipefail
+              apt-get update -y
+              apt-get install -y curl
+              until curl -k --connect-timeout 5 "https://${MasterPrivateIp}:6443" >/dev/null 2>&1; do
+                sleep 10
+              done
+              curl -sfL https://get.k3s.io | K3S_URL="https://${MasterPrivateIp}:6443" K3S_TOKEN="${K3sToken}" INSTALL_K3S_EXEC="agent --node-name ${ProjectName}-worker-2" sh -s -
+            - MasterPrivateIp: !GetAtt MasterNode.PrivateIp
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-worker-node-2"
@@ -115,6 +141,9 @@ Outputs:
 
   MasterPublicIp:
     Value: !GetAtt MasterNode.PublicIp
+
+  MasterPrivateIp:
+    Value: !GetAtt MasterNode.PrivateIp
 
   Worker1InstanceId:
     Value: !Ref WorkerNode1

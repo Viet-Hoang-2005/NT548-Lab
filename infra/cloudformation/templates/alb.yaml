@@ -46,7 +46,7 @@ Resources:
     Properties:
       VpcId: !Ref VpcId
       Protocol: HTTP
-      Port: 80
+      Port: 30080
       TargetType: instance
       HealthCheckEnabled: true
       HealthCheckPath: /
@@ -77,14 +77,14 @@ Resources:
     Properties:
       TargetGroupArn: !Ref K3sTargetGroup
       TargetId: !Ref Worker1InstanceId
-      Port: 80
+      Port: 30080
 
   Worker2TargetAttachment:
     Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
     Properties:
       TargetGroupArn: !Ref K3sTargetGroup
       TargetId: !Ref Worker2InstanceId
-      Port: 80
+      Port: 30080
 
 Outputs:
   AlbDnsName:
