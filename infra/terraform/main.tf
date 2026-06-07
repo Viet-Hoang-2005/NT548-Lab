@@ -79,3 +79,5 @@ module "alb" {
   alb_sg_id           = module.security_group.alb_sg_id
   worker_instance_ids = module.ec2.worker_instance_ids
 }
+
+# Test chạy CI
