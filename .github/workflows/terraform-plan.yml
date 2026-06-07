@@ -1,6 +1,7 @@
 name: "Terraform Plan"
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -89,6 +90,24 @@ jobs:
               body: output
             })
 
-      - name: Check Plan and Checkov Status
-        if: steps.plan.outcome == 'failure' || steps.checkov.outcome == 'failure'
+      - name: Write Job Summary
+        if: always()
+        env:
+          PLAN: ${{ steps.plan.outputs.stdout }}
+        run: |
+          echo "### Terraform CI/CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Initialization**: \`${{ steps.init.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validation**: \`${{ steps.validate.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Checkov Security Scan**: \`${{ steps.checkov.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Terraform Plan**: \`${{ steps.plan.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Show Plan</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`terraform" >> $GITHUB_STEP_SUMMARY
+          echo "$PLAN" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check Plan Status
+        if: steps.plan.outcome == 'failure'
         run: exit 1

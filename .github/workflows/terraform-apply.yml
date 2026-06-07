@@ -38,7 +38,25 @@ jobs:
           terraform_version: "1.9.0"
 
       - name: Terraform Init
-        run: terraform init
+        id: init
+        run: terraform init -no-color
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        id: apply
+        run: terraform apply -auto-approve -no-color
+
+      - name: Write Job Summary
+        if: always()
+        env:
+          APPLY: ${{ steps.apply.outputs.stdout }}
+        run: |
+          echo "### Terraform CI/CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Initialization**: \`${{ steps.init.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Terraform Apply**: \`${{ steps.apply.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Show Apply Output</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`terraform" >> $GITHUB_STEP_SUMMARY
+          echo "$APPLY" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
