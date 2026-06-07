@@ -17,22 +17,25 @@ Hạ tầng gồm VPC, public/private subnets, Internet Gateway, NAT Gateway, ro
   - `group7-public-ec2-sg`: cho phép SSH vào Master Node.
   - `group7-private-ec2-sg`: cho phép traffic từ ALB tại port `80` và SSH từ Master Node.
 - **EC2 Instances**:
-  - 1 Master Node `t2.small` trong Public Subnet.
-  - 2 Worker Nodes `t2.large` trong Private Subnet.
-  - Tự động tạo RSA SSH Key Pair `group7-keypair`.
+  - **1 Master Node** (`t3.small`) nằm ở Public Subnet.
+  - **2 Worker Nodes** (`t3.large`) nằm ở Private Subnet.
+  - Tự động tạo và quản lý RSA SSH Key Pair (`group7-keypair`).
+  - Hệ điều hành: Ubuntu 22.04 LTS.
 
 ## Cấu trúc module
 
 ```text
 infra/terraform/
-|-- main.tf
-|-- variables.tf
-|-- outputs.tf
-`-- modules/
-    |-- vpc/
-    |-- security_group/
-    |-- ec2/
-    `-- alb/
+├── main.tf              # Root module, gọi các module con và tạo Key Pair
+├── variables.tf         # Các biến toàn cục
+├── outputs.tf           # Thông tin xuất ra sau khi chạy (IP, Key,...)
+└── modules/
+    ├── vpc/             # Module lõi mạng (VPC, Subnets, IGW)
+    ├── nat_gateway/     # Module cấp phát IP và NAT Gateway
+    ├── route_tables/    # Module định tuyến
+    ├── security_group/  # Module tường lửa
+    ├── ec2/             # Module máy ảo
+    └── alb/             # Module Load Balancer
 ```
 
 - `main.tf`: root module, gọi các module con và tạo SSH key pair.

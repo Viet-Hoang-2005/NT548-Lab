@@ -1,18 +1,14 @@
-name: "Terraform Apply"
+name: "Terraform Destroy"
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'infra/terraform/**'
+  workflow_dispatch:
 
 env:
   AWS_REGION: ap-southeast-1
 
 jobs:
-  terraform-apply:
-    name: "Terraform Apply"
+  terraform-destroy:
+    name: "Terraform Destroy"
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -41,22 +37,22 @@ jobs:
         id: init
         run: terraform init -no-color
 
-      - name: Terraform Apply
-        id: apply
-        run: terraform apply -auto-approve -no-color
+      - name: Terraform Destroy
+        id: destroy
+        run: terraform destroy -auto-approve -no-color
 
       - name: Write Job Summary
         if: always()
         env:
-          APPLY: ${{ steps.apply.outputs.stdout }}
+          DESTROY: ${{ steps.destroy.outputs.stdout }}
         run: |
           echo "### Terraform CI/CD Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Initialization**: \`${{ steps.init.outcome }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Terraform Apply**: \`${{ steps.apply.outcome }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Terraform Destroy**: \`${{ steps.destroy.outcome }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "<details><summary>Show Apply Output</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Show Destroy Output</summary>" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`terraform" >> $GITHUB_STEP_SUMMARY
-          echo "$APPLY" >> $GITHUB_STEP_SUMMARY
+          echo "$DESTROY" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "</details>" >> $GITHUB_STEP_SUMMARY

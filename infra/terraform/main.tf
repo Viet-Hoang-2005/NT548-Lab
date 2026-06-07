@@ -23,7 +23,6 @@ provider "aws" {
   region = var.region
 }
 
-# Generate an SSH Key Pair
 resource "tls_private_key" "my_key" {
   algorithm = "RSA"
   rsa_bits  = 4096
@@ -37,6 +36,21 @@ resource "aws_key_pair" "generated_key" {
 module "vpc" {
   source   = "./modules/vpc"
   vpc_cidr = var.vpc_cidr
+}
+
+module "nat_gateway" {
+  source           = "./modules/nat_gateway"
+  public_subnet_id = module.vpc.public_subnet_ids[0]
+  depends_on       = [module.vpc]
+}
+
+module "route_tables" {
+  source            = "./modules/route_tables"
+  vpc_id            = module.vpc.vpc_id
+  igw_id            = module.vpc.igw_id
+  nat_gateway_id    = module.nat_gateway.nat_gateway_id
+  public_subnet_ids = module.vpc.public_subnet_ids
+  private_subnet_id = module.vpc.private_subnet_id
 }
 
 module "security_group" {
@@ -54,6 +68,8 @@ module "ec2" {
   key_name             = aws_key_pair.generated_key.key_name
   master_instance_type = var.master_instance_type
   worker_instance_type = var.worker_instance_type
+  ami_name_filter      = var.ami_name_filter
+  ami_owners           = var.ami_owners
 }
 
 module "alb" {
@@ -63,3 +79,5 @@ module "alb" {
   alb_sg_id           = module.security_group.alb_sg_id
   worker_instance_ids = module.ec2.worker_instance_ids
 }
+
+# Test chạy CI
