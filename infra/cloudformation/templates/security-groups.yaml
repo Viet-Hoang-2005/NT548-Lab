@@ -5,6 +5,7 @@ Parameters:
   ProjectName:
     Type: String
     Default: group7-cfn
+    MaxLength: 20
 
   VpcId:
     Type: AWS::EC2::VPC::Id
@@ -12,13 +13,13 @@ Parameters:
   AllowedSshCidr:
     Type: String
     Description: CIDR allowed to SSH into master node. Use your public IP with /32.
-    Default: 0.0.0.0/0
+    Default: 203.0.113.10/32
+    AllowedPattern: "^(([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2})$"
 
 Resources:
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub "${ProjectName}-alb-sg"
       GroupDescription: Security group for Application Load Balancer
       VpcId: !Ref VpcId
       SecurityGroupIngress:
@@ -38,7 +39,6 @@ Resources:
   PublicEc2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub "${ProjectName}-public-ec2-sg"
       GroupDescription: Security group for public master EC2 instance
       VpcId: !Ref VpcId
       SecurityGroupIngress:
@@ -58,12 +58,13 @@ Resources:
   PrivateEc2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub "${ProjectName}-private-ec2-sg"
       GroupDescription: Security group for private worker EC2 instances
       VpcId: !Ref VpcId
       SecurityGroupIngress:
-        - Description: Allow all traffic from public master EC2 security group
-          IpProtocol: -1
+        - Description: Allow SSH from public master EC2 security group
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
           SourceSecurityGroupId: !Ref PublicEc2SecurityGroup
         - Description: Allow HTTP from ALB
           IpProtocol: tcp

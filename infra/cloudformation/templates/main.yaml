@@ -6,6 +6,8 @@ Parameters:
     Type: String
     Default: group7-cfn
     AllowedPattern: "[a-zA-Z0-9-]+"
+    MaxLength: 20
+    Description: Prefix used for resource tags and generated names
 
   VpcCidr:
     Type: String
@@ -13,22 +15,47 @@ Parameters:
 
   AllowedSshCidr:
     Type: String
-    Default: 0.0.0.0/0
-    Description: Use your public IP with /32 for better security
-
-  KeyName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Existing EC2 KeyPair name
+    Default: 203.0.113.10/32
+    AllowedPattern: "^(([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2})$"
+    Description: CIDR allowed to SSH into the public EC2 instance. Replace with your public IP /32.
 
   MasterInstanceType:
     Type: String
     Default: t2.small
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
 
   WorkerInstanceType:
     Type: String
     Default: t2.large
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
 
 Resources:
+  Ec2KeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Sub "${AWS::StackName}-${ProjectName}-keypair"
+      KeyFormat: pem
+      KeyType: rsa
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-keypair"
+
   NetworkStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -59,7 +86,7 @@ Resources:
         PrivateSubnetId: !GetAtt NetworkStack.Outputs.PrivateSubnetId
         PublicEc2SecurityGroupId: !GetAtt SecurityGroupsStack.Outputs.PublicEc2SecurityGroupId
         PrivateEc2SecurityGroupId: !GetAtt SecurityGroupsStack.Outputs.PrivateEc2SecurityGroupId
-        KeyName: !Ref KeyName
+        KeyName: !Ref Ec2KeyPair
         MasterInstanceType: !Ref MasterInstanceType
         WorkerInstanceType: !Ref WorkerInstanceType
 
@@ -79,13 +106,49 @@ Resources:
 
 Outputs:
   VpcId:
+    Description: VPC ID created by the network nested stack
     Value: !GetAtt NetworkStack.Outputs.VpcId
 
+  DefaultSecurityGroupId:
+    Description: Default security group that AWS creates with the VPC
+    Value: !GetAtt NetworkStack.Outputs.DefaultSecurityGroupId
+
+  PublicSubnet1Id:
+    Description: First public subnet ID
+    Value: !GetAtt NetworkStack.Outputs.PublicSubnet1Id
+
+  PublicSubnet2Id:
+    Description: Second public subnet ID
+    Value: !GetAtt NetworkStack.Outputs.PublicSubnet2Id
+
+  PrivateSubnetId:
+    Description: Private subnet ID
+    Value: !GetAtt NetworkStack.Outputs.PrivateSubnetId
+
+  PublicEc2SecurityGroupId:
+    Description: Security group ID for the public EC2 instance
+    Value: !GetAtt SecurityGroupsStack.Outputs.PublicEc2SecurityGroupId
+
+  PrivateEc2SecurityGroupId:
+    Description: Security group ID for the private EC2 instances
+    Value: !GetAtt SecurityGroupsStack.Outputs.PrivateEc2SecurityGroupId
+
+  KeyPairName:
+    Description: Generated EC2 key pair name used by all EC2 instances
+    Value: !Ref Ec2KeyPair
+
+  KeyPairId:
+    Description: Use this ID to retrieve the generated private key from SSM Parameter Store
+    Value: !GetAtt Ec2KeyPair.KeyPairId
+
   MasterPublicIp:
+    Description: Public IP address of the public EC2 instance
     Value: !GetAtt ComputeStack.Outputs.MasterPublicIp
 
   WorkerPrivateIps:
+    Description: Comma-separated private IP addresses of worker EC2 instances
     Value: !GetAtt ComputeStack.Outputs.WorkerPrivateIps
 
   AlbDnsName:
+    Description: Public DNS name of the Application Load Balancer
     Value: !GetAtt AlbStack.Outputs.AlbDnsName

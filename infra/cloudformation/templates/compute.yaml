@@ -5,6 +5,7 @@ Parameters:
   ProjectName:
     Type: String
     Default: group7-cfn
+    MaxLength: 20
 
   PublicSubnet1Id:
     Type: AWS::EC2::Subnet::Id
@@ -19,8 +20,8 @@ Parameters:
     Type: AWS::EC2::SecurityGroup::Id
 
   KeyName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: Existing EC2 KeyPair name for SSH access
+    Type: String
+    Description: EC2 KeyPair name for SSH access
 
   MasterInstanceType:
     Type: String
@@ -30,6 +31,10 @@ Parameters:
       - t2.small
       - t2.medium
       - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
 
   WorkerInstanceType:
     Type: String
@@ -39,6 +44,10 @@ Parameters:
       - t2.small
       - t2.medium
       - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
 
   UbuntuAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>

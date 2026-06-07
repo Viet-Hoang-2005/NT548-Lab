@@ -5,6 +5,7 @@ Parameters:
   ProjectName:
     Type: String
     Default: group7-cfn
+    MaxLength: 20
 
   VpcId:
     Type: AWS::EC2::VPC::Id
@@ -28,7 +29,6 @@ Resources:
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub "${ProjectName}-k3s-alb"
       Scheme: internet-facing
       Type: application
       IpAddressType: ipv4
@@ -44,7 +44,6 @@ Resources:
   K3sTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub "${ProjectName}-k3s-tg"
       VpcId: !Ref VpcId
       Protocol: HTTP
       Port: 80

@@ -1,0 +1,353 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CodeCommit, CodeBuild and CodePipeline for NT548 Lab 2 CloudFormation deployment
+
+Parameters:
+  PipelineName:
+    Type: String
+    Default: group7-cfn-pipeline
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    Description: Name of the CodePipeline pipeline.
+
+  RepositoryName:
+    Type: String
+    Default: group7-cfn-source
+    AllowedPattern: "[a-zA-Z0-9._-]+"
+    Description: CodeCommit repository used as the pipeline source.
+
+  BranchName:
+    Type: String
+    Default: main
+    Description: CodeCommit branch that triggers the pipeline.
+
+  InfrastructureStackName:
+    Type: String
+    Default: group7-cloudformation-lab
+    Description: CloudFormation stack name deployed by the pipeline.
+
+  ProjectName:
+    Type: String
+    Default: group7-cfn
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    MaxLength: 20
+    Description: Project prefix passed to the infrastructure stack.
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: VPC CIDR passed to the infrastructure stack.
+
+  AllowedSshCidr:
+    Type: String
+    Default: 203.0.113.10/32
+    AllowedPattern: "^(([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2})$"
+    Description: CIDR allowed to SSH into the public EC2 instance. Replace with your public IP /32.
+
+  MasterInstanceType:
+    Type: String
+    Default: t2.small
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+  WorkerInstanceType:
+    Type: String
+    Default: t2.large
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+  TaskcatEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Run Taskcat integration tests in CodeBuild. Set false to avoid creating test resources.
+
+Conditions:
+  IsTaskcatEnabled: !Equals [!Ref TaskcatEnabled, "true"]
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${PipelineName}-artifacts"
+
+  SourceRepository:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+      RepositoryDescription: Source repository for NT548 Lab 2 CloudFormation pipeline
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: codebuild-cfn-validation-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:ValidateTemplate
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - ssm:*
+                  - iam:CreateServiceLinkedRole
+                Resource: "*"
+
+  PipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: codepipeline-cfn-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub "${ArtifactBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetRepository
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                Resource: !GetAtt SourceRepository.Arn
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt ValidationBuildProject.Arn
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                Resource: "*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationExecutionRole.Arn
+
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: cloudformation-infra-execution-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:GetTemplate
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - ssm:*
+                  - iam:CreateServiceLinkedRole
+                Resource: "*"
+
+  ValidationBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${PipelineName}-validate"
+      Description: Run cfn-lint, AWS template validation, packaging and optional Taskcat tests
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: infra/cloudformation/buildspec.yml
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Value: !Ref AWS::Region
+          - Name: CFN_ARTIFACT_BUCKET
+            Value: !Ref ArtifactBucket
+          - Name: TASKCAT_ENABLED
+            Value: !If [IsTaskcatEnabled, "true", "false"]
+      TimeoutInMinutes: 60
+
+  CloudFormationPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Ref PipelineName
+      RoleArn: !GetAtt PipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: CodeCommitSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: "1"
+              Configuration:
+                RepositoryName: !Ref RepositoryName
+                BranchName: !Ref BranchName
+                PollForSourceChanges: "true"
+              OutputArtifacts:
+                - Name: SourceOutput
+              RunOrder: 1
+        - Name: BuildAndValidate
+          Actions:
+            - Name: CfnLintValidateTaskcat
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              Configuration:
+                ProjectName: !Ref ValidationBuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: DeployInfrastructureStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: "1"
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: !Ref InfrastructureStackName
+                TemplatePath: BuildOutput::packaged.yaml
+                RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                Capabilities: CAPABILITY_AUTO_EXPAND
+                ParameterOverrides: !Sub |
+                  {
+                    "ProjectName": "${ProjectName}",
+                    "VpcCidr": "${VpcCidr}",
+                    "AllowedSshCidr": "${AllowedSshCidr}",
+                    "MasterInstanceType": "${MasterInstanceType}",
+                    "WorkerInstanceType": "${WorkerInstanceType}"
+                  }
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+
+Outputs:
+  CodeCommitCloneUrlHttp:
+    Description: HTTPS clone URL for the generated CodeCommit repository
+    Value: !GetAtt SourceRepository.CloneUrlHttp
+
+  ArtifactBucketName:
+    Description: S3 bucket used by CodePipeline and CloudFormation package
+    Value: !Ref ArtifactBucket
+
+  CodeBuildProjectName:
+    Description: CodeBuild project that runs cfn-lint, validate-template and Taskcat
+    Value: !Ref ValidationBuildProject
+
+  PipelineName:
+    Description: CodePipeline name
+    Value: !Ref CloudFormationPipeline
+
+  CloudFormationExecutionRoleArn:
+    Description: IAM role used by the CloudFormation deploy action
+    Value: !GetAtt CloudFormationExecutionRole.Arn

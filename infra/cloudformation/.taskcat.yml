@@ -1,0 +1,16 @@
+project:
+  name: nt548-lab2-cloudformation
+  regions:
+    - ap-southeast-1
+
+tests:
+  full-infrastructure:
+    template: ./templates/main.yaml
+    regions:
+      - ap-southeast-1
+    parameters:
+      ProjectName: group7-tcat
+      VpcCidr: 10.20.0.0/16
+      AllowedSshCidr: 203.0.113.10/32
+      MasterInstanceType: t2.micro
+      WorkerInstanceType: t2.micro
