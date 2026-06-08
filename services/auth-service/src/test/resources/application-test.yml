@@ -1,0 +1,27 @@
+# Test profile — use H2 in-memory DB (no real Postgres needed)
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;INIT=CREATE SCHEMA IF NOT EXISTS AUTH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        default_schema: auth
+
+  flyway:
+    enabled: false
+
+app:
+  jwt:
+    secret: test-jwt-secret-key-must-be-at-least-32-characters-long
+    access-token-expiry-ms: 1800000
+    refresh-token-expiry-ms: 604800000
+  gateway:
+    secret: test-gateway-secret
+  internal:
+    secret: test-internal-secret

@@ -1,0 +1,158 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: EC2 stack for NT548 Lab 2 - master and worker nodes
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: group7-cfn
+    MaxLength: 20
+
+  PublicSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnetId:
+    Type: AWS::EC2::Subnet::Id
+
+  PublicEc2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  PrivateEc2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+  KeyName:
+    Type: String
+    Description: EC2 KeyPair name for SSH access
+
+  MasterInstanceType:
+    Type: String
+    Default: t2.small
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+  WorkerInstanceType:
+    Type: String
+    Default: t2.large
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+  UbuntuAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+
+  K3sToken:
+    Type: String
+    NoEcho: true
+    MinLength: 10
+    Description: Shared token used by k3s agents to join the k3s server
+
+Resources:
+  MasterNode:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !Ref MasterInstanceType
+      SubnetId: !Ref PublicSubnet1Id
+      SecurityGroupIds:
+        - !Ref PublicEc2SecurityGroupId
+      KeyName: !Ref KeyName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          apt-get update -y
+          apt-get install -y curl
+          curl -sfL https://get.k3s.io | K3S_TOKEN="${K3sToken}" INSTALL_K3S_EXEC="server --node-name ${ProjectName}-master --write-kubeconfig-mode 644 --disable traefik" sh -s -
+          mkdir -p /home/ubuntu/.kube
+          cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+          chown -R ubuntu:ubuntu /home/ubuntu/.kube
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-master-node"
+
+  WorkerNode1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !Ref WorkerInstanceType
+      SubnetId: !Ref PrivateSubnetId
+      SecurityGroupIds:
+        - !Ref PrivateEc2SecurityGroupId
+      KeyName: !Ref KeyName
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash
+              set -euxo pipefail
+              apt-get update -y
+              apt-get install -y curl
+              until curl -k --connect-timeout 5 "https://${MasterPrivateIp}:6443" >/dev/null 2>&1; do
+                sleep 10
+              done
+              curl -sfL https://get.k3s.io | K3S_URL="https://${MasterPrivateIp}:6443" K3S_TOKEN="${K3sToken}" INSTALL_K3S_EXEC="agent --node-name ${ProjectName}-worker-1" sh -s -
+            - MasterPrivateIp: !GetAtt MasterNode.PrivateIp
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-worker-node-1"
+
+  WorkerNode2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmiId
+      InstanceType: !Ref WorkerInstanceType
+      SubnetId: !Ref PrivateSubnetId
+      SecurityGroupIds:
+        - !Ref PrivateEc2SecurityGroupId
+      KeyName: !Ref KeyName
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash
+              set -euxo pipefail
+              apt-get update -y
+              apt-get install -y curl
+              until curl -k --connect-timeout 5 "https://${MasterPrivateIp}:6443" >/dev/null 2>&1; do
+                sleep 10
+              done
+              curl -sfL https://get.k3s.io | K3S_URL="https://${MasterPrivateIp}:6443" K3S_TOKEN="${K3sToken}" INSTALL_K3S_EXEC="agent --node-name ${ProjectName}-worker-2" sh -s -
+            - MasterPrivateIp: !GetAtt MasterNode.PrivateIp
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-worker-node-2"
+
+Outputs:
+  MasterInstanceId:
+    Value: !Ref MasterNode
+
+  MasterPublicIp:
+    Value: !GetAtt MasterNode.PublicIp
+
+  MasterPrivateIp:
+    Value: !GetAtt MasterNode.PrivateIp
+
+  Worker1InstanceId:
+    Value: !Ref WorkerNode1
+
+  Worker2InstanceId:
+    Value: !Ref WorkerNode2
+
+  WorkerPrivateIps:
+    Value: !Join
+      - ","
+      - - !GetAtt WorkerNode1.PrivateIp
+        - !GetAtt WorkerNode2.PrivateIp

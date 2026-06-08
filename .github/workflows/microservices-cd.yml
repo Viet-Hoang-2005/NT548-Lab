@@ -1,0 +1,278 @@
+name: Microservices CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "services/**"
+      - "k8s/**"
+      - "sonar-project.properties"
+      - ".github/path-filters.yml"
+      - ".github/workflows/microservices-cd.yml"
+  workflow_dispatch:
+
+env:
+  K8S_DIR: k8s/microservices
+  K8S_NAMESPACE: microservices
+  TRIVY_DISABLE_VEX_NOTICE: "true"
+
+jobs:
+  detect-changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      auth_service: ${{ steps.filter.outputs.auth_service }}
+      course_service: ${{ steps.filter.outputs.course_service }}
+      k8s: ${{ steps.filter.outputs.k8s }}
+      workflow_cd: ${{ steps.filter.outputs.workflow_cd }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: .github/path-filters.yml
+
+      - name: Build service matrix
+        id: matrix
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GATEWAY: ${{ steps.filter.outputs.gateway }}
+          AUTH_SERVICE: ${{ steps.filter.outputs.auth_service }}
+          COURSE_SERVICE: ${{ steps.filter.outputs.course_service }}
+          K8S: ${{ steps.filter.outputs.k8s }}
+          WORKFLOW_CD: ${{ steps.filter.outputs.workflow_cd }}
+        run: |
+          set -euo pipefail
+
+          services=()
+
+          add_service() {
+            services+=("{\"name\":\"$1\",\"dir\":\"$2\"}")
+          }
+
+          add_all_services() {
+            add_service "gateway" "services/gateway"
+            add_service "auth-service" "services/auth-service"
+            add_service "course-service" "services/course-service"
+          }
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$K8S" == "true" || "$WORKFLOW_CD" == "true" ]]; then
+            add_all_services
+          else
+            [[ "$GATEWAY" == "true" ]] && add_service "gateway" "services/gateway"
+            [[ "$AUTH_SERVICE" == "true" ]] && add_service "auth-service" "services/auth-service"
+            [[ "$COURSE_SERVICE" == "true" ]] && add_service "course-service" "services/course-service"
+          fi
+
+          if [[ "${#services[@]}" -eq 0 ]]; then
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+          else
+            matrix="$(printf '%s\n' "${services[@]}" | jq -c -s '{include: .}')"
+            echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+            echo "count=${#services[@]}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-scan-push:
+    name: CD - Build, Scan and Push ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.count != '0'
+
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Prepare image name
+        id: image
+        run: |
+          REPOSITORY="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          IMAGE_NAME="ghcr.io/${REPOSITORY}/${{ matrix.name }}"
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+          echo "name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Run unit tests
+        working-directory: ${{ matrix.dir }}
+        run: |
+          chmod +x mvnw
+          ./mvnw -B test --no-transfer-progress
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t "${IMAGE_NAME}:${GITHUB_SHA}" \
+            -t "${IMAGE_NAME}:latest" \
+            "${{ matrix.dir }}"
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          version: v0.71.0
+
+      - name: Push Docker image
+        run: |
+          docker push "${IMAGE_NAME}:${GITHUB_SHA}"
+          docker push "${IMAGE_NAME}:latest"
+
+  deploy-k3s:
+    name: Deploy changed services to k3s
+    runs-on: self-hosted
+    needs:
+      - detect-changes
+      - build-scan-push
+    if: needs.detect-changes.outputs.count != '0'
+
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Prepare image names
+        run: |
+          REPOSITORY="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "GATEWAY_IMAGE=ghcr.io/${REPOSITORY}/gateway:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "AUTH_IMAGE=ghcr.io/${REPOSITORY}/auth-service:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "COURSE_IMAGE=ghcr.io/${REPOSITORY}/course-service:${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Create namespace and free NodePort
+        run: |
+          sudo kubectl delete svc demo-nginx --ignore-not-found
+          sudo kubectl delete deployment demo-nginx --ignore-not-found
+          sudo kubectl delete svc catalog-service -n "${K8S_NAMESPACE}" --ignore-not-found
+          sudo kubectl delete deployment catalog-service -n "${K8S_NAMESPACE}" --ignore-not-found
+          sudo kubectl apply -f "${K8S_DIR}/namespace.yaml"
+
+      - name: Configure GHCR image pull secret
+        run: |
+          sudo kubectl delete secret ghcr-pull-secret \
+            -n "${K8S_NAMESPACE}" \
+            --ignore-not-found
+
+          sudo kubectl create secret docker-registry ghcr-pull-secret \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}" \
+            -n "${K8S_NAMESPACE}"
+
+      - name: Configure application secrets
+        env:
+          SAGELMS_DB_PASSWORD: ${{ secrets.SAGELMS_DB_PASSWORD }}
+          SAGELMS_JWT_SECRET: ${{ secrets.SAGELMS_JWT_SECRET }}
+          SAGELMS_GATEWAY_SHARED_SECRET: ${{ secrets.SAGELMS_GATEWAY_SHARED_SECRET }}
+          SAGELMS_INTERNAL_API_SECRET: ${{ secrets.SAGELMS_INTERNAL_API_SECRET }}
+        run: |
+          missing=0
+
+          for name in SAGELMS_DB_PASSWORD SAGELMS_JWT_SECRET SAGELMS_GATEWAY_SHARED_SECRET SAGELMS_INTERNAL_API_SECRET; do
+            if [ -z "${!name}" ]; then
+              echo "::error::GitHub secret ${name} is required for deployment."
+              missing=1
+            fi
+          done
+
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+          sudo kubectl delete secret db-app-secret -n "${K8S_NAMESPACE}" --ignore-not-found
+          sudo kubectl create secret generic db-app-secret \
+            -n "${K8S_NAMESPACE}" \
+            --from-literal=POSTGRES_DB=sagelms \
+            --from-literal=POSTGRES_USER=sagelms \
+            --from-literal=POSTGRES_PASSWORD="${SAGELMS_DB_PASSWORD}" \
+            --from-literal=DB_NAME=sagelms \
+            --from-literal=DB_USER=sagelms \
+            --from-literal=DB_PASSWORD="${SAGELMS_DB_PASSWORD}"
+
+          sudo kubectl delete secret app-shared-secret -n "${K8S_NAMESPACE}" --ignore-not-found
+          sudo kubectl create secret generic app-shared-secret \
+            -n "${K8S_NAMESPACE}" \
+            --from-literal=JWT_SECRET="${SAGELMS_JWT_SECRET}" \
+            --from-literal=GATEWAY_SHARED_SECRET="${SAGELMS_GATEWAY_SHARED_SECRET}" \
+            --from-literal=INTERNAL_API_SECRET="${SAGELMS_INTERNAL_API_SECRET}"
+
+      - name: Deploy PostgreSQL
+        run: |
+          sudo kubectl apply -f "${K8S_DIR}/postgres-deployment.yaml"
+          sudo kubectl apply -f "${K8S_DIR}/postgres-service.yaml"
+          sudo kubectl rollout status deployment/postgres -n "${K8S_NAMESPACE}" --timeout=180s
+
+      - name: Deploy auth-service
+        if: needs.detect-changes.outputs.auth_service == 'true' || needs.detect-changes.outputs.k8s == 'true' || needs.detect-changes.outputs.workflow_cd == 'true'
+        run: |
+          sudo kubectl apply -f "${K8S_DIR}/auth-configmap.yaml"
+          sed "s#AUTH_IMAGE_PLACEHOLDER#${AUTH_IMAGE}#g" "${K8S_DIR}/auth-deployment.yaml" | sudo kubectl apply -f -
+          sudo kubectl apply -f "${K8S_DIR}/auth-service.yaml"
+          sudo kubectl rollout status deployment/auth-service -n "${K8S_NAMESPACE}" --timeout=300s
+
+      - name: Deploy course-service
+        if: needs.detect-changes.outputs.course_service == 'true' || needs.detect-changes.outputs.k8s == 'true' || needs.detect-changes.outputs.workflow_cd == 'true'
+        run: |
+          sudo kubectl apply -f "${K8S_DIR}/course-configmap.yaml"
+          sed "s#COURSE_IMAGE_PLACEHOLDER#${COURSE_IMAGE}#g" "${K8S_DIR}/course-deployment.yaml" | sudo kubectl apply -f -
+          sudo kubectl apply -f "${K8S_DIR}/course-service.yaml"
+          sudo kubectl rollout status deployment/course-service -n "${K8S_NAMESPACE}" --timeout=300s
+
+      - name: Deploy gateway
+        if: needs.detect-changes.outputs.gateway == 'true' || needs.detect-changes.outputs.k8s == 'true' || needs.detect-changes.outputs.workflow_cd == 'true'
+        run: |
+          sudo kubectl apply -f "${K8S_DIR}/gateway-configmap.yaml"
+          sed "s#GATEWAY_IMAGE_PLACEHOLDER#${GATEWAY_IMAGE}#g" "${K8S_DIR}/gateway-deployment.yaml" | sudo kubectl apply -f -
+          sudo kubectl apply -f "${K8S_DIR}/gateway-service.yaml"
+          sudo kubectl rollout status deployment/gateway -n "${K8S_NAMESPACE}" --timeout=300s
+
+      - name: Smoke test inside cluster
+        run: |
+          sudo kubectl get pods -n "${K8S_NAMESPACE}" -o wide
+          sudo kubectl get svc -n "${K8S_NAMESPACE}"
+
+          sudo kubectl delete pod sagelms-smoke-test -n "${K8S_NAMESPACE}" --ignore-not-found
+
+          sudo kubectl run sagelms-smoke-test \
+            -n "${K8S_NAMESPACE}" \
+            --rm \
+            -i \
+            --restart=Never \
+            --image=curlimages/curl:8.11.1 \
+            -- curl -fsS http://gateway/actuator/health

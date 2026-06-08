@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "group7-cfn"
+  },
+  {
+    "ParameterKey": "VpcCidr",
+    "ParameterValue": "10.0.0.0/16"
+  },
+  {
+    "ParameterKey": "AllowedSshCidr",
+    "ParameterValue": "203.0.113.10/32"
+  },
+  {
+    "ParameterKey": "MasterInstanceType",
+    "ParameterValue": "t2.small"
+  },
+  {
+    "ParameterKey": "WorkerInstanceType",
+    "ParameterValue": "t2.large"
+  },
+  {
+    "ParameterKey": "K3sToken",
+    "ParameterValue": "group7-k3s-bootstrap-token"
+  }
+]

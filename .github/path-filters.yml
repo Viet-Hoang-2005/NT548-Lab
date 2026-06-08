@@ -1,0 +1,22 @@
+gateway:
+  - "services/gateway/**"
+
+auth_service:
+  - "services/auth-service/**"
+
+course_service:
+  - "services/course-service/**"
+
+k8s:
+  - "k8s/**"
+
+sonar:
+  - "sonar-project.properties"
+
+workflow_ci:
+  - ".github/workflows/microservices-ci.yml"
+  - ".github/path-filters.yml"
+
+workflow_cd:
+  - ".github/workflows/microservices-cd.yml"
+  - ".github/path-filters.yml"

@@ -1,0 +1,143 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Security groups for NT548 Lab 2
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: group7-cfn
+    MaxLength: 20
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  AllowedSshCidr:
+    Type: String
+    Description: CIDR allowed to SSH into master node. Use your public IP with /32.
+    Default: 203.0.113.10/32
+    AllowedPattern: "^(([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2})$"
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Allow HTTP from Internet
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-alb-sg"
+
+  PublicEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for public master EC2 instance
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: SSH from allowed IP only
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSshCidr
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-public-ec2-sg"
+
+  PrivateEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for private worker EC2 instances
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Allow SSH from public master EC2 security group
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref PublicEc2SecurityGroup
+        - Description: Allow HTTP from ALB
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+        - Description: Allow Kubernetes NodePort 30080 from ALB
+          IpProtocol: tcp
+          FromPort: 30080
+          ToPort: 30080
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-private-ec2-sg"
+
+  PublicEc2K3sApiIngressFromPrivate:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicEc2SecurityGroup
+      Description: Allow k3s agents to reach the k3s API server
+      IpProtocol: tcp
+      FromPort: 6443
+      ToPort: 6443
+      SourceSecurityGroupId: !Ref PrivateEc2SecurityGroup
+
+  PublicEc2FlannelIngressFromPrivate:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PublicEc2SecurityGroup
+      Description: Allow k3s flannel VXLAN traffic from worker nodes
+      IpProtocol: udp
+      FromPort: 8472
+      ToPort: 8472
+      SourceSecurityGroupId: !Ref PrivateEc2SecurityGroup
+
+  PrivateEc2FlannelIngressFromPublic:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PrivateEc2SecurityGroup
+      Description: Allow k3s flannel VXLAN traffic from server node
+      IpProtocol: udp
+      FromPort: 8472
+      ToPort: 8472
+      SourceSecurityGroupId: !Ref PublicEc2SecurityGroup
+
+  PrivateEc2KubeletIngressFromPublic:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PrivateEc2SecurityGroup
+      Description: Allow kubelet traffic from server node
+      IpProtocol: tcp
+      FromPort: 10250
+      ToPort: 10250
+      SourceSecurityGroupId: !Ref PublicEc2SecurityGroup
+
+  PrivateEc2ClusterIngressFromPrivate:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref PrivateEc2SecurityGroup
+      Description: Allow worker-to-worker cluster traffic
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref PrivateEc2SecurityGroup
+
+Outputs:
+  AlbSecurityGroupId:
+    Value: !Ref AlbSecurityGroup
+
+  PublicEc2SecurityGroupId:
+    Value: !Ref PublicEc2SecurityGroup
+
+  PrivateEc2SecurityGroupId:
+    Value: !Ref PrivateEc2SecurityGroup
