@@ -8,6 +8,7 @@ on:
       - "services/**"
       - "k8s/**"
       - "sonar-project.properties"
+      - ".github/path-filters.yml"
       - ".github/workflows/microservices-cd.yml"
   workflow_dispatch:
 
@@ -17,9 +18,76 @@ env:
   TRIVY_DISABLE_VEX_NOTICE: "true"
 
 jobs:
-  build-scan-push:
-    name: CD - Build, Scan and Push ${{ matrix.service.name }}
+  detect-changes:
+    name: Detect changed services
     runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      auth_service: ${{ steps.filter.outputs.auth_service }}
+      course_service: ${{ steps.filter.outputs.course_service }}
+      k8s: ${{ steps.filter.outputs.k8s }}
+      workflow_cd: ${{ steps.filter.outputs.workflow_cd }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: .github/path-filters.yml
+
+      - name: Build service matrix
+        id: matrix
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GATEWAY: ${{ steps.filter.outputs.gateway }}
+          AUTH_SERVICE: ${{ steps.filter.outputs.auth_service }}
+          COURSE_SERVICE: ${{ steps.filter.outputs.course_service }}
+          K8S: ${{ steps.filter.outputs.k8s }}
+          WORKFLOW_CD: ${{ steps.filter.outputs.workflow_cd }}
+        run: |
+          set -euo pipefail
+
+          services=()
+
+          add_service() {
+            services+=("{\"name\":\"$1\",\"dir\":\"$2\"}")
+          }
+
+          add_all_services() {
+            add_service "gateway" "services/gateway"
+            add_service "auth-service" "services/auth-service"
+            add_service "course-service" "services/course-service"
+          }
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$K8S" == "true" || "$WORKFLOW_CD" == "true" ]]; then
+            add_all_services
+          else
+            [[ "$GATEWAY" == "true" ]] && add_service "gateway" "services/gateway"
+            [[ "$AUTH_SERVICE" == "true" ]] && add_service "auth-service" "services/auth-service"
+            [[ "$COURSE_SERVICE" == "true" ]] && add_service "course-service" "services/course-service"
+          fi
+
+          if [[ "${#services[@]}" -eq 0 ]]; then
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+          else
+            matrix="$(printf '%s\n' "${services[@]}" | jq -s '{include: .}')"
+            echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+            echo "count=${#services[@]}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-scan-push:
+    name: CD - Build, Scan and Push ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.count != '0'
 
     permissions:
       contents: read
@@ -28,14 +96,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        service:
-          - name: gateway
-            dir: services/gateway
-          - name: auth-service
-            dir: services/auth-service
-          - name: course-service
-            dir: services/course-service
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
 
     steps:
       - name: Checkout source
@@ -45,7 +106,7 @@ jobs:
         id: image
         run: |
           REPOSITORY="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          IMAGE_NAME="ghcr.io/${REPOSITORY}/${{ matrix.service.name }}"
+          IMAGE_NAME="ghcr.io/${REPOSITORY}/${{ matrix.name }}"
           echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
           echo "name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
 
@@ -57,7 +118,7 @@ jobs:
           cache: maven
 
       - name: Run unit tests
-        working-directory: ${{ matrix.service.dir }}
+        working-directory: ${{ matrix.dir }}
         run: |
           chmod +x mvnw
           ./mvnw -B test --no-transfer-progress
@@ -74,7 +135,7 @@ jobs:
           docker build \
             -t "${IMAGE_NAME}:${GITHUB_SHA}" \
             -t "${IMAGE_NAME}:latest" \
-            "${{ matrix.service.dir }}"
+            "${{ matrix.dir }}"
 
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@v0.36.0
@@ -92,9 +153,12 @@ jobs:
           docker push "${IMAGE_NAME}:latest"
 
   deploy-k3s:
-    name: Deploy SageLMS services to k3s
+    name: Deploy changed services to k3s
     runs-on: self-hosted
-    needs: build-scan-push
+    needs:
+      - detect-changes
+      - build-scan-push
+    if: needs.detect-changes.outputs.count != '0'
 
     permissions:
       contents: read
@@ -174,25 +238,28 @@ jobs:
           sudo kubectl apply -f "${K8S_DIR}/postgres-service.yaml"
           sudo kubectl rollout status deployment/postgres -n "${K8S_NAMESPACE}" --timeout=180s
 
-      - name: Deploy application manifests
+      - name: Deploy auth-service
+        if: needs.detect-changes.outputs.auth_service == 'true' || needs.detect-changes.outputs.k8s == 'true' || needs.detect-changes.outputs.workflow_cd == 'true'
         run: |
           sudo kubectl apply -f "${K8S_DIR}/auth-configmap.yaml"
-          sudo kubectl apply -f "${K8S_DIR}/course-configmap.yaml"
-          sudo kubectl apply -f "${K8S_DIR}/gateway-configmap.yaml"
-
           sed "s#AUTH_IMAGE_PLACEHOLDER#${AUTH_IMAGE}#g" "${K8S_DIR}/auth-deployment.yaml" | sudo kubectl apply -f -
           sudo kubectl apply -f "${K8S_DIR}/auth-service.yaml"
+          sudo kubectl rollout status deployment/auth-service -n "${K8S_NAMESPACE}" --timeout=300s
 
+      - name: Deploy course-service
+        if: needs.detect-changes.outputs.course_service == 'true' || needs.detect-changes.outputs.k8s == 'true' || needs.detect-changes.outputs.workflow_cd == 'true'
+        run: |
+          sudo kubectl apply -f "${K8S_DIR}/course-configmap.yaml"
           sed "s#COURSE_IMAGE_PLACEHOLDER#${COURSE_IMAGE}#g" "${K8S_DIR}/course-deployment.yaml" | sudo kubectl apply -f -
           sudo kubectl apply -f "${K8S_DIR}/course-service.yaml"
+          sudo kubectl rollout status deployment/course-service -n "${K8S_NAMESPACE}" --timeout=300s
 
+      - name: Deploy gateway
+        if: needs.detect-changes.outputs.gateway == 'true' || needs.detect-changes.outputs.k8s == 'true' || needs.detect-changes.outputs.workflow_cd == 'true'
+        run: |
+          sudo kubectl apply -f "${K8S_DIR}/gateway-configmap.yaml"
           sed "s#GATEWAY_IMAGE_PLACEHOLDER#${GATEWAY_IMAGE}#g" "${K8S_DIR}/gateway-deployment.yaml" | sudo kubectl apply -f -
           sudo kubectl apply -f "${K8S_DIR}/gateway-service.yaml"
-
-      - name: Wait for rollout
-        run: |
-          sudo kubectl rollout status deployment/auth-service -n "${K8S_NAMESPACE}" --timeout=300s
-          sudo kubectl rollout status deployment/course-service -n "${K8S_NAMESPACE}" --timeout=300s
           sudo kubectl rollout status deployment/gateway -n "${K8S_NAMESPACE}" --timeout=300s
 
       - name: Smoke test inside cluster
