@@ -2,6 +2,13 @@
 
 Thư mục này hoàn thành phần triển khai hạ tầng AWS bằng CloudFormation và tự động hóa quy trình build/deploy bằng AWS CodeCommit, CodeBuild và CodePipeline.
 
+## Trạng thái hiện tại
+
+- Pipeline `group7-cfn-pipeline` đã chạy thành công đủ 3 stage: `Source`, `BuildAndValidate`, `Deploy`.
+- CodeBuild đã chạy được các bước kiểm tra: `cfn-lint`, `aws cloudformation validate-template`, `aws cloudformation package` và Taskcat.
+- Stack hạ tầng `group7-cloudformation-lab` đã được deploy bằng CloudFormation action trong CodePipeline.
+- Hạ tầng sau deploy đã sẵn sàng để dùng tiếp cho Lab 2 câu 3: k3s server trên public EC2 master, k3s agent trên 2 private EC2 worker, ALB forward traffic vào NodePort `30080`.
+
 ## Mục tiêu
 
 - Dùng CloudFormation để triển khai lại hạ tầng đã làm ở Lab 1: VPC, public/private subnet, Internet Gateway, NAT Gateway, route table, Security Group và EC2.
@@ -72,6 +79,7 @@ CodeCommit -> CodeBuild -> CloudFormation Deploy
 1. `Source`: lấy source từ AWS CodeCommit.
 2. `BuildAndValidate`: CodeBuild chạy `buildspec.yml`.
    - Cài `cfn-lint` và `taskcat`.
+   - Dùng S3 cache cho pip tại `/root/.cache/pip` để giảm thời gian cài package ở các lần chạy sau.
    - Chạy `cfn-lint` cho toàn bộ template.
    - Chạy `aws cloudformation validate-template` cho các nested template.
    - Chạy `aws cloudformation package` để upload nested template lên S3 artifact bucket.
@@ -139,6 +147,18 @@ aws cloudformation deploy `
 
 Taskcat tạo stack test thật, NAT Gateway, EC2 và ALB nên có thể phát sinh chi phí. Nếu chỉ muốn chạy lint/package/deploy, đặt `TaskcatEnabled=false`.
 
+Nếu có thay đổi trong `pipeline.yaml` như IAM Role, cache, CodeBuild project hoặc stage của CodePipeline, cần deploy lại pipeline stack để AWS cập nhật tài nguyên pipeline:
+
+```powershell
+aws cloudformation deploy `
+  --template-file infra/cloudformation/pipeline.yaml `
+  --stack-name group7-cfn-pipeline-stack `
+  --region ap-southeast-1 `
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+Nếu chỉ sửa template hạ tầng hoặc `buildspec.yml`, chỉ cần commit và push lên CodeCommit để pipeline tự chạy lại.
+
 ## Đẩy source lên CodeCommit
 
 Sau khi tạo pipeline, lấy URL CodeCommit từ output `CodeCommitCloneUrlHttp`, sau đó push source của repo hiện tại lên CodeCommit:
@@ -149,6 +169,14 @@ git push codecommit feat/cloudformation:main
 ```
 
 Pipeline sẽ tự chạy khi branch `main` của CodeCommit có commit mới.
+
+Nếu pipeline không tự chạy, kích hoạt thủ công:
+
+```powershell
+aws codepipeline start-pipeline-execution `
+  --name group7-cfn-pipeline `
+  --region ap-southeast-1
+```
 
 ## Kiểm tra thủ công CloudFormation
 
@@ -186,10 +214,18 @@ aws cloudformation validate-template --template-body file://packaged.yaml --regi
 
 ```bash
 cd infra/cloudformation
-taskcat test run -c .taskcat.yml
+taskcat test run -i .taskcat.yml
 ```
 
 Taskcat sẽ tạo stack test theo `.taskcat.yml`, kiểm tra stack có tạo thành công hay không, sau đó xóa stack test.
+
+Nếu muốn giữ lại stack khi lỗi để debug:
+
+```bash
+taskcat test run -i .taskcat.yml --keep-failed
+```
+
+Lưu ý: warning `pkg_resources is deprecated` từ Taskcat không làm pipeline fail. Đây là cảnh báo từ thư viện Python `setuptools`; trong `buildspec.yml` đã pin `setuptools<82` để Taskcat vẫn chạy ổn định trên Python 3.11.
 
 ## Lấy output sau deploy
 
@@ -209,6 +245,23 @@ Các output quan trọng:
 - `MasterPrivateIp`: private IP của k3s server.
 - `AlbDnsName`: DNS public của ALB.
 - `KeyPairId`: ID dùng để lấy private key từ SSM Parameter Store.
+
+Kiểm tra trạng thái pipeline:
+
+```powershell
+aws codepipeline get-pipeline-state `
+  --name group7-cfn-pipeline `
+  --region ap-southeast-1
+```
+
+Kiểm tra trạng thái stack hạ tầng:
+
+```powershell
+aws cloudformation describe-stacks `
+  --stack-name group7-cloudformation-lab `
+  --region ap-southeast-1 `
+  --query "Stacks[0].StackStatus"
+```
 
 ## Lấy private key để SSH
 
@@ -338,6 +391,15 @@ Nếu service chạy đúng, ALB sẽ forward traffic vào NodePort `30080` trê
 | Kiểm tra bảo mật SSH | Security Group | Public EC2 chỉ mở SSH từ `AllowedSshCidr`, private EC2 chỉ mở SSH từ public EC2 SG |
 | Kiểm tra k3s cluster | `kubectl get nodes` | Master và 2 worker nodes ở trạng thái `Ready` |
 | Kiểm tra ALB cho app câu 3 | Browser/curl | `http://<AlbDnsName>` trả response từ Kubernetes Service NodePort `30080` |
+
+## Minh chứng cần chụp cho báo cáo
+
+- CodePipeline `group7-cfn-pipeline` có 3 stage đều thành công: `Source`, `BuildAndValidate`, `Deploy`.
+- CodeBuild log hiển thị các bước `cfn-lint`, `validate-template`, `package`, `taskcat test run`.
+- CloudFormation stack `group7-cloudformation-lab` ở trạng thái `CREATE_COMPLETE` hoặc `UPDATE_COMPLETE`.
+- Outputs của stack gồm `MasterPublicIp`, `MasterPrivateIp`, `WorkerPrivateIps`, `AlbDnsName`, `KeyPairId`.
+- EC2 console hiển thị 1 public master node và 2 private worker nodes.
+- `kubectl get nodes -o wide` trên master hiển thị 3 node k3s ở trạng thái `Ready`.
 
 ## Xóa tài nguyên
 
