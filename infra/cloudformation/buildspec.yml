@@ -52,6 +52,9 @@ phases:
           --output-template-file "$CFN_PACKAGED_TEMPLATE" \
           --region "$AWS_REGION"
       - aws cloudformation validate-template --template-body "file://$CFN_PACKAGED_TEMPLATE" --region "$AWS_REGION"
+      - echo "===== packaged.yaml TemplateURL values ====="
+      - grep -n "TemplateURL" "$CFN_PACKAGED_TEMPLATE" || true
+      - cat "$CFN_PACKAGED_TEMPLATE"
       - |
         if [ "$TASKCAT_ENABLED" = "true" ]; then
           taskcat test run -i .taskcat.yml  --keep-failed

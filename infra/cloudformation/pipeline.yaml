@@ -190,6 +190,9 @@ Resources:
                   - codecommit:GetRepository
                   - codecommit:GetUploadArchiveStatus
                   - codecommit:UploadArchive
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources 
+                  - cloudformation:GetTemplate
                 Resource: !GetAtt SourceRepository.Arn
               - Effect: Allow
                 Action:
@@ -249,6 +252,8 @@ Resources:
                   - elasticloadbalancing:*
                   - ssm:*
                   - iam:CreateServiceLinkedRole
+                  - iam:PassRole
+                  - iam:GetRole
                 Resource: "*"
 
   ValidationBuildProject:
@@ -330,7 +335,7 @@ Resources:
                 StackName: !Ref InfrastructureStackName
                 TemplatePath: BuildOutput::packaged.yaml
                 RoleArn: !GetAtt CloudFormationExecutionRole.Arn
-                Capabilities: CAPABILITY_AUTO_EXPAND
+                Capabilities: CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
                 ParameterOverrides: !Sub |
                   {
                     "ProjectName": "${ProjectName}",
