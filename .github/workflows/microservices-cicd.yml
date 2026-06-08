@@ -1,0 +1,149 @@
+name: Microservices CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - feat/cicd-github-actions
+    paths:
+      - "apps/**"
+      - "k8s/**"
+      - "sonar-project.properties"
+      - ".github/workflows/microservices-cicd.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "apps/**"
+      - "k8s/**"
+      - "sonar-project.properties"
+      - ".github/workflows/microservices-cicd.yml"
+  workflow_dispatch:
+
+env:
+  SERVICE_NAME: catalog-service
+  SERVICE_DIR: apps/catalog-service
+  K8S_DIR: k8s/microservices
+  K8S_NAMESPACE: microservices
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+jobs:
+  build-test-scan:
+    name: Build, Test, Scan and Push Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Prepare image name
+        id: image
+        run: |
+          IMAGE_NAME="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/catalog-service"
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+          echo "name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: npm ci
+
+      - name: Run unit tests
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: npm test
+
+      - name: SonarQube or SonarCloud scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+
+      - name: Skip Sonar scan
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN is not configured; skipping Sonar scan."
+
+      - name: Login to GitHub Container Registry
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t "${IMAGE_NAME}:${GITHUB_SHA}" \
+            -t "${IMAGE_NAME}:latest" \
+            "${SERVICE_DIR}"
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Push Docker image
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          docker push "${IMAGE_NAME}:${GITHUB_SHA}"
+          docker push "${IMAGE_NAME}:latest"
+
+  deploy-k3s:
+    name: Deploy to k3s on EC2
+    runs-on: self-hosted
+    needs: build-test-scan
+    if: ${{ github.event_name != 'pull_request' }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Prepare image name
+        run: echo "IMAGE_NAME=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')/catalog-service" >> "$GITHUB_ENV"
+
+      - name: Create namespace
+        run: |
+          sudo kubectl delete svc demo-nginx --ignore-not-found
+          sudo kubectl delete deployment demo-nginx --ignore-not-found
+          sudo kubectl apply -f "${K8S_DIR}/namespace.yaml"
+
+      - name: Configure GHCR image pull secret
+        run: |
+          sudo kubectl delete secret ghcr-pull-secret \
+            -n "${K8S_NAMESPACE}" \
+            --ignore-not-found
+          sudo kubectl create secret docker-registry ghcr-pull-secret \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}" \
+            -n "${K8S_NAMESPACE}"
+
+      - name: Deploy manifests
+        run: |
+          IMAGE="${IMAGE_NAME}:${GITHUB_SHA}"
+          sed "s#IMAGE_PLACEHOLDER#${IMAGE}#g" "${K8S_DIR}/catalog-deployment.yaml" | sudo kubectl apply -f -
+          sudo kubectl apply -f "${K8S_DIR}/catalog-service.yaml"
+          sudo kubectl rollout status deployment/catalog-service -n "${K8S_NAMESPACE}" --timeout=180s
+
+      - name: Show deployed resources
+        run: |
+          sudo kubectl get pods -n "${K8S_NAMESPACE}" -o wide
+          sudo kubectl get svc -n "${K8S_NAMESPACE}"

@@ -64,3 +64,5 @@
 - Tích hợp SonarQube để kiểm tra chất lượng mã nguồn.
 
 - Có thể tích hợp thêm các công cụ kiểm tra bảo mật như Snyk hoặc Trivy để tăng cường tính an toàn của mã nguồn (tùy chọn).
+
+Phần triển khai mẫu cho câu 3 nằm trong `docs/lab2-cau3-microservices-cicd.md`, sử dụng GitHub Actions, Docker, GHCR, Trivy, SonarQube/SonarCloud và cụm k3s đã tạo ở câu 2.

@@ -16,3 +16,6 @@
 # Secret key
 *.pem
 *.key
+
+# Local AWS command outputs
+describe-stacks*.json
