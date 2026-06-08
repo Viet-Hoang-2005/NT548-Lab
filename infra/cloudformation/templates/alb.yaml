@@ -58,6 +58,11 @@ Resources:
       HealthCheckIntervalSeconds: 10
       Matcher:
         HttpCode: "200"
+      Targets:
+        - Id: !Ref Worker1InstanceId
+          Port: 30080
+        - Id: !Ref Worker2InstanceId
+          Port: 30080
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-k3s-tg"
@@ -72,19 +77,6 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref K3sTargetGroup
 
-  Worker1TargetAttachment:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
-    Properties:
-      TargetGroupArn: !Ref K3sTargetGroup
-      TargetId: !Ref Worker1InstanceId
-      Port: 30080
-
-  Worker2TargetAttachment:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
-    Properties:
-      TargetGroupArn: !Ref K3sTargetGroup
-      TargetId: !Ref Worker2InstanceId
-      Port: 30080
 
 Outputs:
   AlbDnsName:
