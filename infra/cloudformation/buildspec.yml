@@ -39,7 +39,7 @@ phases:
           templates/compute.yaml
           templates/alb.yaml
         )
-        cfn-lint --ignore-checks W3002 "${TEMPLATE_FILES[@]}"
+        cfn-lint -r "$AWS_REGION" -i W3002 -- "${TEMPLATE_FILES[@]}"
       - |
         for template in templates/network.yaml templates/security-groups.yaml templates/compute.yaml templates/alb.yaml; do
           aws cloudformation validate-template --template-body "file://$template" --region "$AWS_REGION"
