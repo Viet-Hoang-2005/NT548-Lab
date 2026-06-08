@@ -54,7 +54,7 @@ phases:
       - aws cloudformation validate-template --template-body "file://$CFN_PACKAGED_TEMPLATE" --region "$AWS_REGION"
       - |
         if [ "$TASKCAT_ENABLED" = "true" ]; then
-          taskcat test run -c .taskcat.yml
+          taskcat test run .taskcat.yml
         else
           echo "TASKCAT_ENABLED is not true; skipping Taskcat integration deployment."
         fi
