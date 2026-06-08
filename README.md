@@ -41,7 +41,7 @@ Sử dụng GitHub Actions như dịch vụ tương tự Jenkins để build, te
 Pipeline tích hợp:
 
 - Maven unit test.
-- SonarQube hoặc SonarCloud nếu có `SONAR_TOKEN`.
+- SonarCloud hoặc SonarQube nếu có `SONAR_TOKEN`.
 - Docker build và push image lên GHCR.
 - Trivy scan image.
 - Deploy lên k3s qua self-hosted runner trên EC2 master.
