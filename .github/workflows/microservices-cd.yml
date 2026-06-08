@@ -1,40 +1,31 @@
-name: Microservices CI/CD
+name: Microservices CD
 
 on:
   push:
     branches:
       - main
-      - feat/cicd-github-actions
     paths:
       - "services/**"
       - "k8s/**"
       - "sonar-project.properties"
-      - ".github/workflows/microservices-cicd.yml"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "services/**"
-      - "k8s/**"
-      - "sonar-project.properties"
-      - ".github/workflows/microservices-cicd.yml"
+      - ".github/workflows/microservices-cd.yml"
   workflow_dispatch:
 
 env:
   K8S_DIR: k8s/microservices
   K8S_NAMESPACE: microservices
   TRIVY_DISABLE_VEX_NOTICE: "true"
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
 jobs:
-  build-test-scan:
-    name: Build, Test, Scan and Push ${{ matrix.service.name }}
+  build-scan-push:
+    name: CD - Build, Scan and Push ${{ matrix.service.name }}
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       packages: write
       security-events: write
+
     strategy:
       fail-fast: false
       matrix:
@@ -71,24 +62,7 @@ jobs:
           chmod +x mvnw
           ./mvnw -B test --no-transfer-progress
 
-      - name: SonarQube or SonarCloud scan
-        if: ${{ env.SONAR_TOKEN != '' }}
-        uses: SonarSource/sonarqube-scan-action@v5
-        env:
-          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}_${{ matrix.service.name }}
-            -Dsonar.projectName=${{ matrix.service.name }}
-            -Dsonar.projectBaseDir=${{ matrix.service.dir }}
-
-      - name: Skip Sonar scan
-        if: ${{ env.SONAR_TOKEN == '' }}
-        run: echo "SONAR_TOKEN is not configured; skipping Sonar scan for ${{ matrix.service.name }}."
-
       - name: Login to GitHub Container Registry
-        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -113,7 +87,6 @@ jobs:
           version: v0.71.0
 
       - name: Push Docker image
-        if: ${{ github.event_name != 'pull_request' }}
         run: |
           docker push "${IMAGE_NAME}:${GITHUB_SHA}"
           docker push "${IMAGE_NAME}:latest"
@@ -121,8 +94,8 @@ jobs:
   deploy-k3s:
     name: Deploy SageLMS services to k3s
     runs-on: self-hosted
-    needs: build-test-scan
-    if: ${{ github.event_name != 'pull_request' }}
+    needs: build-scan-push
+
     permissions:
       contents: read
       packages: read
@@ -151,6 +124,7 @@ jobs:
           sudo kubectl delete secret ghcr-pull-secret \
             -n "${K8S_NAMESPACE}" \
             --ignore-not-found
+
           sudo kubectl create secret docker-registry ghcr-pull-secret \
             --docker-server=ghcr.io \
             --docker-username="${{ github.actor }}" \
@@ -165,12 +139,14 @@ jobs:
           SAGELMS_INTERNAL_API_SECRET: ${{ secrets.SAGELMS_INTERNAL_API_SECRET }}
         run: |
           missing=0
+
           for name in SAGELMS_DB_PASSWORD SAGELMS_JWT_SECRET SAGELMS_GATEWAY_SHARED_SECRET SAGELMS_INTERNAL_API_SECRET; do
             if [ -z "${!name}" ]; then
               echo "::error::GitHub secret ${name} is required for deployment."
               missing=1
             fi
           done
+
           if [ "${missing}" -ne 0 ]; then
             exit 1
           fi
@@ -203,10 +179,13 @@ jobs:
           sudo kubectl apply -f "${K8S_DIR}/auth-configmap.yaml"
           sudo kubectl apply -f "${K8S_DIR}/course-configmap.yaml"
           sudo kubectl apply -f "${K8S_DIR}/gateway-configmap.yaml"
+
           sed "s#AUTH_IMAGE_PLACEHOLDER#${AUTH_IMAGE}#g" "${K8S_DIR}/auth-deployment.yaml" | sudo kubectl apply -f -
           sudo kubectl apply -f "${K8S_DIR}/auth-service.yaml"
+
           sed "s#COURSE_IMAGE_PLACEHOLDER#${COURSE_IMAGE}#g" "${K8S_DIR}/course-deployment.yaml" | sudo kubectl apply -f -
           sudo kubectl apply -f "${K8S_DIR}/course-service.yaml"
+
           sed "s#GATEWAY_IMAGE_PLACEHOLDER#${GATEWAY_IMAGE}#g" "${K8S_DIR}/gateway-deployment.yaml" | sudo kubectl apply -f -
           sudo kubectl apply -f "${K8S_DIR}/gateway-service.yaml"
 
@@ -220,7 +199,9 @@ jobs:
         run: |
           sudo kubectl get pods -n "${K8S_NAMESPACE}" -o wide
           sudo kubectl get svc -n "${K8S_NAMESPACE}"
+
           sudo kubectl delete pod sagelms-smoke-test -n "${K8S_NAMESPACE}" --ignore-not-found
+
           sudo kubectl run sagelms-smoke-test \
             -n "${K8S_NAMESPACE}" \
             --rm \

@@ -1,0 +1,94 @@
+name: Microservices CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "services/**"
+      - "k8s/**"
+      - "sonar-project.properties"
+      - ".github/workflows/microservices-ci.yml"
+  workflow_dispatch:
+
+env:
+  TRIVY_DISABLE_VEX_NOTICE: "true"
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+jobs:
+  build-test-scan:
+    name: CI - Build, Test and Scan ${{ matrix.service.name }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: gateway
+            dir: services/gateway
+          - name: auth-service
+            dir: services/auth-service
+          - name: course-service
+            dir: services/course-service
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Prepare image name
+        id: image
+        run: |
+          REPOSITORY="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          IMAGE_NAME="ghcr.io/${REPOSITORY}/${{ matrix.service.name }}"
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+          echo "name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Run unit tests
+        working-directory: ${{ matrix.service.dir }}
+        run: |
+          chmod +x mvnw
+          ./mvnw -B test --no-transfer-progress
+
+      - name: SonarQube or SonarCloud scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}_${{ matrix.service.name }}
+            -Dsonar.projectName=${{ matrix.service.name }}
+            -Dsonar.projectBaseDir=${{ matrix.service.dir }}
+
+      - name: Skip Sonar scan
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN is not configured; skipping Sonar scan for ${{ matrix.service.name }}."
+
+      - name: Build Docker image locally
+        run: |
+          docker build \
+            -t "${IMAGE_NAME}:${GITHUB_SHA}" \
+            "${{ matrix.service.dir }}"
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          version: v0.71.0
