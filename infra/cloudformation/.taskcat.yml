@@ -5,7 +5,7 @@ project:
 
 tests:
   full-infrastructure:
-    template: ./templates/main.yaml
+    template: packaged.yaml
     regions:
       - ap-southeast-1
     parameters:
