@@ -1,0 +1,76 @@
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    AWS_REGION: ap-southeast-1
+    CFN_ARTIFACT_BUCKET: ""
+    CFN_TEMPLATE: templates/main.yaml
+    CFN_PACKAGED_TEMPLATE: packaged.yaml
+    TASKCAT_ENABLED: "false"
+    PIP_CACHE_DIR: /root/.cache/pip
+
+phases:
+  install:
+    runtime-versions:
+      python: "3.11"
+    commands:
+      - python -m pip install --upgrade pip wheel
+      - python -m pip install "setuptools<82"
+      - python -m pip install cfn-lint taskcat
+
+  pre_build:
+    commands:
+      - if [ -d infra/cloudformation ]; then cd infra/cloudformation; fi
+      - test -f "$CFN_TEMPLATE"
+      - test -n "$CFN_ARTIFACT_BUCKET"
+      - aws --version
+      - cfn-lint --version
+
+  build:
+    commands:
+      - if [ -d infra/cloudformation ]; then cd infra/cloudformation; fi
+      - pwd
+      - ls -la templates
+      - |
+        TEMPLATE_FILES=(
+          templates/main.yaml
+          templates/network.yaml
+          templates/security-groups.yaml
+          templates/compute.yaml
+          templates/alb.yaml
+        )
+        cfn-lint -r "$AWS_REGION" -i W3002 -- "${TEMPLATE_FILES[@]}"
+      - |
+        for template in templates/network.yaml templates/security-groups.yaml templates/compute.yaml templates/alb.yaml; do
+          aws cloudformation validate-template --template-body "file://$template" --region "$AWS_REGION"
+        done
+      - |
+        aws cloudformation package \
+          --template-file "$CFN_TEMPLATE" \
+          --s3-bucket "$CFN_ARTIFACT_BUCKET" \
+          --output-template-file "$CFN_PACKAGED_TEMPLATE" \
+          --region "$AWS_REGION"
+      - aws cloudformation validate-template --template-body "file://$CFN_PACKAGED_TEMPLATE" --region "$AWS_REGION"
+      - echo "===== packaged.yaml TemplateURL values ====="
+      - grep -n "TemplateURL" "$CFN_PACKAGED_TEMPLATE" || true
+      - cat "$CFN_PACKAGED_TEMPLATE"
+      - |
+        if [ "$TASKCAT_ENABLED" = "true" ]; then
+          taskcat test run -i .taskcat.yml  --keep-failed
+        else
+          echo "TASKCAT_ENABLED is not true; skipping Taskcat integration deployment."
+        fi
+
+artifacts:
+  base-directory: infra/cloudformation
+  files:
+    - "packaged.yaml"
+    - "templates/**/*.yaml"
+    - "parameters/**/*.json"
+    - ".taskcat.yml"
+  discard-paths: no
+
+cache:
+  paths:
+    - "/root/.cache/pip/**/*"

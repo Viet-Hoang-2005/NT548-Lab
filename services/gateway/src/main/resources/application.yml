@@ -1,0 +1,115 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: sagelms-gateway
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          secret: ${JWT_SECRET}
+
+  cloud:
+    gateway:
+      routes:
+        # --- Auth Service (PUBLIC) ---
+        - id: auth-service
+          uri: http://${AUTH_SERVICE_HOST:localhost}:${AUTH_SERVICE_PORT:8081}
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - StripPrefix=0
+
+        # --- User Management (via Auth Service) ---
+        - id: user-management
+          uri: http://${AUTH_SERVICE_HOST:localhost}:${AUTH_SERVICE_PORT:8081}
+          predicates:
+            - Path=/api/v1/users/**
+          filters:
+            - StripPrefix=0
+
+        # --- Notifications (via Auth Service) ---
+        - id: notifications
+          uri: http://${AUTH_SERVICE_HOST:localhost}:${AUTH_SERVICE_PORT:8081}
+          predicates:
+            - Path=/api/v1/notifications/**
+          filters:
+            - StripPrefix=0
+
+        # --- Course Lessons (Content Service) - MUST come BEFORE course-service ---
+        - id: course-lessons
+          uri: http://${CONTENT_SERVICE_HOST:localhost}:${CONTENT_SERVICE_PORT:8083}
+          predicates:
+            - Path=/api/v1/courses/{courseId}/lessons,/api/v1/courses/{courseId}/lessons/**
+          filters:
+            - StripPrefix=0
+
+        # --- Content Service ---
+        - id: content-service
+          uri: http://${CONTENT_SERVICE_HOST:localhost}:${CONTENT_SERVICE_PORT:8083}
+          predicates:
+            - Path=/api/v1/content/**,/api/v1/lessons/**
+          filters:
+            - StripPrefix=0
+
+        # --- Course Service (less specific, comes after) ---
+        # Note: gateway validates JWT for auth, course-service trusts gateway headers.
+        # This is secure because only frontend can reach gateway (not publicly exposed).
+        # --- Assessment Service (course-scoped, must come BEFORE course-service) ---
+        - id: assessment-service
+          uri: http://${ASSESSMENT_SERVICE_HOST:localhost}:${ASSESSMENT_SERVICE_PORT:8085}
+          predicates:
+            - Path=/api/v1/courses/{courseId}/assessments/**,/api/v1/courses/{courseId}/assessment-submissions,/api/v1/courses/{courseId}/assessment-gradebook,/api/v1/courses/{courseId}/my-assessment-results,/api/v1/assessments/**,/api/v1/assessment-question-sets/**,/api/v1/assessment-attempts/**
+          filters:
+            - StripPrefix=0
+
+        # --- Course Service (less specific, comes after assessment/content routes) ---
+        # Note: gateway validates JWT for auth, course-service trusts gateway headers.
+        # This is secure because only frontend can reach gateway (not publicly exposed).
+        - id: course-service
+          uri: http://${COURSE_SERVICE_HOST:localhost}:${COURSE_SERVICE_PORT:8082}
+          predicates:
+            - Path=/api/v1/courses/**,/api/v1/enrollments/**
+          filters:
+            - StripPrefix=0
+            - RemoveRequestHeader=X-Forwarded-Authorization
+
+        # --- Challenge Service ---
+        - id: challenge-service
+          uri: http://${CHALLENGE_SERVICE_HOST:localhost}:${CHALLENGE_SERVICE_PORT:8086}
+          predicates:
+            - Path=/api/v1/challenges/**,/api/v1/question-sets/**,/api/v1/challenge-attempts/**
+          filters:
+            - StripPrefix=0
+
+        # --- Progress Service (comment out nếu service chưa chạy — tránh network error khi demo) ---
+        # - id: progress-service
+        #   uri: http://${PROGRESS_SERVICE_HOST:localhost}:${PROGRESS_SERVICE_PORT:8084}
+        #   predicates:
+        #     - Path=/api/v1/progress/**
+
+        # --- AI Tutor Service ---
+        - id: ai-tutor-service
+          uri: http://${AI_TUTOR_SERVICE_HOST:localhost}:${AI_TUTOR_SERVICE_PORT:8087}
+          predicates:
+            - Path=/api/v1/ai/**
+          filters:
+            - StripPrefix=0
+
+        # --- Worker (Job API) ---
+        # - id: worker-service
+        #   uri: http://${WORKER_SERVICE_HOST:localhost}:${WORKER_SERVICE_PORT:8087}
+        #   predicates:
+        #     - Path=/api/v1/jobs/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+app:
+  gateway:
+    secret: ${GATEWAY_SHARED_SECRET}

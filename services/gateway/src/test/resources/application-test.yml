@@ -1,0 +1,14 @@
+# Gateway test profile
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          secret: test-secret-key-for-unit-tests-only
+  cloud:
+    gateway:
+      routes: []
+
+app:
+  gateway:
+    secret: test-gateway-secret
