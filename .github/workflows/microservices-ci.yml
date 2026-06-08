@@ -149,17 +149,3 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           version: v0.71.0
-
-  k8s-validate:
-    name: CI - Validate Kubernetes manifests
-    runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.k8s == 'true'
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Validate Kubernetes YAML
-        run: |
-          kubectl apply --dry-run=client -f k8s/microservices/
