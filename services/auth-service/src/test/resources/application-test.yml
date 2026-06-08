@@ -18,7 +18,7 @@ spring:
 
 app:
   jwt:
-    secret: test-jwt-secret
+    secret: test-jwt-secret-key-must-be-at-least-32-characters-long
     access-token-expiry-ms: 1800000
     refresh-token-expiry-ms: 604800000
   gateway:
