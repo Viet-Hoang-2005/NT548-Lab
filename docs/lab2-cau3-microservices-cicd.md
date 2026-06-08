@@ -28,7 +28,7 @@ Không dùng `apps/web` trong lab này vì frontend Node thường có dependenc
 GitHub push
   -> GitHub Actions matrix job
      -> Maven unit test cho gateway/auth-service/course-service
-     -> SonarQube hoặc SonarCloud scan nếu có token
+     -> SonarCloud hoặc SonarQube scan nếu có token
      -> Docker build từng service
      -> Trivy scan từng image
      -> Push image lên GHCR
@@ -98,7 +98,7 @@ Pipeline có 2 nhóm job chính:
 ./mvnw -B test --no-transfer-progress
 ```
 
-   - Chạy SonarQube/SonarCloud nếu repo có secret `SONAR_TOKEN`.
+   - Chạy SonarCloud hoặc SonarQube nếu repo có secret `SONAR_TOKEN`.
    - Build Docker image cho từng service.
    - Scan image bằng Trivy, fail nếu có lỗ hổng `HIGH` hoặc `CRITICAL`.
    - Push image lên GHCR theo format:
@@ -144,15 +144,52 @@ gh secret set SAGELMS_GATEWAY_SHARED_SECRET
 gh secret set SAGELMS_INTERNAL_API_SECRET
 ```
 
-Nếu muốn tích hợp Sonar:
+Nếu muốn tích hợp SonarCloud:
 
 | Tên | Loại | Mô tả |
 | --- | --- | --- |
-| `SONAR_TOKEN` | Secret | Token để upload kết quả scan lên SonarQube/SonarCloud |
-| `SONAR_HOST_URL` | Secret | URL SonarQube self-hosted, ví dụ `http://<host>:9000`; nếu dùng SonarCloud có thể bỏ qua |
-Nếu dùng SonarCloud thay vì SonarQube self-hosted, có thể bổ sung `-Dsonar.organization=<organization-key>` trong bước Sonar của workflow.
+| `SONAR_TOKEN` | Secret | Token tạo trong SonarCloud để GitHub Actions upload kết quả scan |
+| `SONAR_ORGANIZATION` | Variable | Organization key trên SonarCloud |
 
-Nếu chưa cấu hình `SONAR_TOKEN`, workflow sẽ skip bước Sonar và vẫn chạy các bước còn lại.
+Các bước cấu hình SonarCloud:
+
+1. Vào SonarCloud và import GitHub repository.
+2. Lấy organization key trong SonarCloud.
+3. Tạo token trong SonarCloud:
+
+```text
+My Account -> Security -> Generate Tokens
+```
+
+4. Thêm vào GitHub repository:
+
+```text
+Settings -> Secrets and variables -> Actions
+```
+
+5. Tạo secret và variable:
+
+```text
+Secret:   SONAR_TOKEN
+Variable: SONAR_ORGANIZATION
+```
+
+Workflow tạo project key theo từng service:
+
+```text
+<owner>_<repo>_gateway
+<owner>_<repo>_auth-service
+<owner>_<repo>_course-service
+```
+
+Nếu muốn dùng SonarQube self-hosted thay SonarCloud:
+
+| Tên | Loại | Mô tả |
+| --- | --- | --- |
+| `SONAR_TOKEN` | Secret | Token của SonarQube |
+| `SONAR_HOST_URL` | Secret | URL SonarQube self-hosted, ví dụ `http://<host>:9000` |
+
+Nếu chưa cấu hình `SONAR_TOKEN`, workflow sẽ skip bước Sonar và vẫn chạy các bước còn lại. Nếu có `SONAR_TOKEN` nhưng thiếu cả `SONAR_ORGANIZATION` và `SONAR_HOST_URL`, workflow cũng skip Sonar để tránh fail không rõ nguyên nhân.
 
 ## Cài self-hosted runner trên EC2 master
 
@@ -287,6 +324,24 @@ Kết quả mong đợi:
 {"status":"UP"}
 ```
 
+Kết quả deploy thực tế đã ghi nhận:
+
+```text
+NAME                              READY   STATUS    RESTARTS   AGE
+auth-service-7679fb7dcb-w6b25     1/1     Running   0          2m41s
+course-service-65b59c6c7f-p6zfz   1/1     Running   0          96s
+gateway-57c549d9d7-gq67v          1/1     Running   0          43s
+postgres-d8b8955bc-895v2          1/1     Running   0          21m
+
+NAME             TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)
+auth-service     ClusterIP   10.43.149.31    <none>        8081/TCP
+course-service   ClusterIP   10.43.183.11    <none>        8082/TCP
+gateway          NodePort    10.43.227.153   <none>        80:30080/TCP
+postgres         ClusterIP   10.43.183.113   <none>        5432/TCP
+
+{"status":"UP","groups":["liveness","readiness"]}
+```
+
 ## Test cases
 
 | Test case | Công cụ | Kết quả mong đợi |
@@ -294,7 +349,7 @@ Kết quả mong đợi:
 | Unit test từng service | Maven | Tất cả test pass |
 | Build Docker image | Docker | Image build thành công |
 | Scan bảo mật image | Trivy | Không có lỗ hổng HIGH/CRITICAL chưa xử lý |
-| Scan chất lượng source | SonarQube/SonarCloud | Project được scan nếu có `SONAR_TOKEN` |
+| Scan chất lượng source | SonarCloud/SonarQube | Project được scan nếu có `SONAR_TOKEN` và `SONAR_ORGANIZATION` hoặc `SONAR_HOST_URL` |
 | Push image | GHCR | Có image `gateway`, `auth-service`, `course-service` theo commit SHA |
 | Deploy Kubernetes | `kubectl apply` | PostgreSQL và 3 service được tạo trong namespace `microservices` |
 | Rollout | `kubectl rollout status` | Các deployment rollout thành công |
@@ -305,7 +360,7 @@ Kết quả mong đợi:
 - GitHub Actions workflow `Microservices CI/CD` chạy thành công.
 - Log Maven unit test pass cho cả 3 service.
 - Log Trivy scan pass cho cả 3 image.
-- Log Sonar scan hoặc log skip nếu chưa cấu hình Sonar.
+- Log SonarCloud scan hoặc log skip nếu chưa cấu hình Sonar.
 - GHCR có image `gateway`, `auth-service`, `course-service`.
 - `kubectl get pods -n microservices -o wide` hiển thị PostgreSQL và 3 service Running.
 - `kubectl get svc -n microservices` hiển thị `gateway` có `80:30080/TCP`.

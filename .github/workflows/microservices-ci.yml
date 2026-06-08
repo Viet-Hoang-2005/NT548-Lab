@@ -1,6 +1,15 @@
 name: Microservices CI
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "services/**"
+      - "k8s/**"
+      - "sonar-project.properties"
+      - ".github/path-filters.yml"
+      - ".github/workflows/microservices-ci.yml"
   pull_request:
     branches:
       - main
@@ -16,6 +25,7 @@ env:
   TRIVY_DISABLE_VEX_NOTICE: "true"
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
   SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
 
 jobs:
   detect-changes:
@@ -118,8 +128,23 @@ jobs:
           chmod +x mvnw
           ./mvnw -B test --no-transfer-progress
 
-      - name: SonarQube or SonarCloud scan
-        if: ${{ env.SONAR_TOKEN != '' }}
+      - name: SonarCloud scan
+        if: ${{ env.SONAR_TOKEN != '' && env.SONAR_ORGANIZATION != '' }}
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}_${{ matrix.name }}
+            -Dsonar.projectName=${{ matrix.name }}
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.sources=src/main/java
+            -Dsonar.tests=src/test/java
+            -Dsonar.java.binaries=target/classes
+            -Dsonar.projectBaseDir=${{ matrix.dir }}
+
+      - name: SonarQube scan
+        if: ${{ env.SONAR_TOKEN != '' && env.SONAR_ORGANIZATION == '' && env.SONAR_HOST_URL != '' }}
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
@@ -128,11 +153,18 @@ jobs:
           args: >
             -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}_${{ matrix.name }}
             -Dsonar.projectName=${{ matrix.name }}
+            -Dsonar.sources=src/main/java
+            -Dsonar.tests=src/test/java
+            -Dsonar.java.binaries=target/classes
             -Dsonar.projectBaseDir=${{ matrix.dir }}
 
       - name: Skip Sonar scan
         if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN is not configured; skipping Sonar scan for ${{ matrix.name }}."
+
+      - name: Skip Sonar scan because target is not configured
+        if: ${{ env.SONAR_TOKEN != '' && env.SONAR_ORGANIZATION == '' && env.SONAR_HOST_URL == '' }}
+        run: echo "SONAR_TOKEN is configured, but SONAR_ORGANIZATION or SONAR_HOST_URL is missing; skipping Sonar scan for ${{ matrix.name }}."
 
       - name: Build Docker image locally
         run: |
