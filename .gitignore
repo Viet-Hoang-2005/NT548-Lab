@@ -19,3 +19,9 @@
 
 # Local AWS command outputs
 describe-stacks*.json
+
+# Temporary imported repositories
+.tmp-sagelms/
+
+# Build outputs
+target/
