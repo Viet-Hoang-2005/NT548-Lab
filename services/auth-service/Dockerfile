@@ -14,9 +14,12 @@ RUN ./mvnw package -DskipTests -B
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-RUN addgroup -S sagelms && adduser -S sagelms -G sagelms
+RUN addgroup -S -g 10001 sagelms \
+  && adduser -S -u 10001 -G sagelms sagelms
+
 COPY --from=build --chmod=0444 /app/target/*.jar app.jar
 
-USER sagelms
+USER 10001:10001
+
 EXPOSE 8081
 ENTRYPOINT ["sh", "-c", "exec java ${JAVA_OPTS:-} -jar app.jar"]
