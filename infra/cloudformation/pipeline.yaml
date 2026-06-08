@@ -141,9 +141,11 @@ Resources:
                   - cloudformation:CreateStack
                   - cloudformation:UpdateStack
                   - cloudformation:DeleteStack
+                  - cloudformation:ListStacks
                   - cloudformation:DescribeStacks
                   - cloudformation:DescribeStackEvents
                   - cloudformation:DescribeStackResources
+                  - cloudformation:ListStackResources
                   - cloudformation:GetTemplate
                   - cloudformation:ValidateTemplate
                 Resource: "*"
