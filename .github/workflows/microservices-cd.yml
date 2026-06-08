@@ -78,7 +78,7 @@ jobs:
             echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
             echo "count=0" >> "$GITHUB_OUTPUT"
           else
-            matrix="$(printf '%s\n' "${services[@]}" | jq -s '{include: .}')"
+            matrix="$(printf '%s\n' "${services[@]}" | jq -c -s '{include: .}')"
             echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
             echo "count=${#services[@]}" >> "$GITHUB_OUTPUT"
           fi
